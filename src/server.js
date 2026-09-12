@@ -1,5 +1,6 @@
 const express = require("express");
 const crypto = require("crypto");
+const tokenStore = require("./token-store");
 
 const {
   PORT = 3000,
@@ -22,6 +23,43 @@ for (const [name, value] of Object.entries({
     process.exit(1);
   }
 }
+
+// token de longa duracao (60 dias) do "Gerar token" do painel. Persistido em
+// disco pra sobreviver a restarts (nao a rebuilds/redeploys, que voltam pro
+// valor da env var IG_ACCESS_TOKEN).
+const salvo = tokenStore.load();
+let currentAccessToken = salvo?.access_token || IG_ACCESS_TOKEN;
+let tokenUpdatedAt = salvo?.updated_at || Date.now();
+
+const UM_DIA_MS = 24 * 60 * 60 * 1000;
+
+async function renovarTokenSeNecessario() {
+  const idadeMs = Date.now() - tokenUpdatedAt;
+  if (idadeMs < UM_DIA_MS) return; // Meta exige token com pelo menos 24h pra renovar
+
+  try {
+    const resp = await fetch(
+      `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(
+        currentAccessToken
+      )}`
+    );
+    const data = await resp.json();
+    if (!resp.ok || !data.access_token) {
+      console.error("Falha ao renovar token de acesso", data);
+      return;
+    }
+    currentAccessToken = data.access_token;
+    tokenUpdatedAt = Date.now();
+    tokenStore.save(currentAccessToken);
+    const dias = Math.round((data.expires_in || 0) / 86400);
+    console.log(`Token renovado, valido por mais ~${dias} dias`);
+  } catch (err) {
+    console.error("Erro ao chamar refresh_access_token", err);
+  }
+}
+
+setInterval(renovarTokenSeNecessario, UM_DIA_MS);
+renovarTokenSeNecessario();
 
 const app = express();
 
@@ -61,7 +99,7 @@ async function enviarPrivateReply(commentId) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${IG_ACCESS_TOKEN}`,
+        Authorization: `Bearer ${currentAccessToken}`,
       },
       body: JSON.stringify({
         recipient: { comment_id: commentId },

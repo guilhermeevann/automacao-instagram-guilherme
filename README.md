@@ -18,10 +18,24 @@ Ver `.env.example`. Preencher no EasyPanel:
 
 - `VERIFY_TOKEN` — string livre, usada so na verificacao do webhook (ja gerada, ver `.env` local).
 - `IG_APP_SECRET` — chave secreta do **app do Instagram** (nao a do app principal da Meta).
-- `IG_ACCESS_TOKEN` — token de acesso do Instagram. O que esta em uso agora e de teste
-  (curta duracao, ~1h). Antes de ir pra producao precisa trocar por um de longa duracao
-  (60 dias) e configurar refresh periodico — ainda nao implementado aqui.
+- `IG_ACCESS_TOKEN` — token de acesso do Instagram gerado pelo botao "Gerar token" do
+  painel (ja e de longa duracao, 60 dias). O servidor renova ele sozinho (ver abaixo)
+  e persiste o token renovado em `data/token.json`.
 - `IG_USER_ID` — IGSID da conta profissional (`17841400654167125`).
+
+## Renovacao automatica do token
+
+O token de 60 dias pode ser renovado por mais 60 dias assim que tiver pelo menos 24h
+de vida. O servidor faz isso sozinho: ao subir, e depois a cada 24h, chama
+`refresh_access_token` e salva o resultado em `data/token.json` (ignorado pelo git).
+
+**Limite conhecido:** esse arquivo sobrevive a um *restart* do container, mas nao a um
+*redeploy* (rebuild da imagem) — nesse caso o servidor volta a usar o valor da env var
+`IG_ACCESS_TOKEN`, que pode estar desatualizado se fizer muito tempo desde a ultima vez
+que foi editada manualmente. Pra evitar isso: sempre que for redeployar depois de uns
+30-40 dias no ar, olha o log mais recente (`Token renovado, valido por mais ~N dias`)
+e atualiza a env var no EasyPanel com esse valor antes de redeployar. Um jeito mais
+robusto (persistir num volume ou banco) fica pra quando isso virar dor de verdade.
 
 ## Deploy no EasyPanel
 
@@ -38,6 +52,6 @@ Ver `.env.example`. Preencher no EasyPanel:
 
 - Dedupe de comentario e em memoria — reinicio do processo zera a lista (nao critico,
   a Meta bloqueia reenvio de qualquer forma).
-- Token de acesso ainda e o de teste (tester), curta duracao. Trocar pelo fluxo de
-  usuario real + long-lived token antes do App Review / producao.
+- Redeploy (rebuild) perde o token renovado em disco e volta pro valor da env var —
+  ver secao "Renovacao automatica do token" acima.
 - Sem retry/queue se a chamada de `/messages` falhar — so loga no console.
