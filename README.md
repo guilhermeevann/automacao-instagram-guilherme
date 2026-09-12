@@ -1,16 +1,48 @@
 # automacao-instagram-guilherme
 
-Webhook receiver do comentario `AGENTE VERTICAL` -> private reply no Instagram, via
-Meta Graph API (Instagram API com login do Instagram).
+Webhook receiver de comentario -> private reply no Instagram, via Meta Graph API
+(Instagram API com login do Instagram). Equivalente caseiro do Comments Growth Tool
+do ManyChat: cada post pode ter sua propria palavra-chave e sua propria mensagem.
 
 ## O que faz
 
 1. Recebe o evento `comments` no `POST /webhook` quando alguem comenta num post/reel.
 2. Confere a assinatura `X-Hub-Signature-256` com o App Secret do Instagram.
-3. Se o texto do comentario contiver a palavra-gatilho (`AGENTE VERTICAL`), envia uma
-   private reply via `POST /{IG_USER_ID}/messages` com `recipient.comment_id`.
+3. Casa o comentario contra `rules.json` (post especifico primeiro, depois a regra
+   `"all"` como fallback) e, se a palavra-chave bater, envia uma private reply via
+   `POST /{IG_USER_ID}/messages` com `recipient.comment_id`.
 4. Guarda em memoria os `comment_id` ja respondidos (a Meta so aceita 1 private reply
    por comentario de qualquer forma; isso so evita uma chamada de API repetida).
+
+## Regras por post (`rules.json`)
+
+```json
+[
+  {
+    "media_id": "all",
+    "keywords": ["AGENTE VERTICAL"],
+    "reply_text": "Oi! Recebi seu comentario, ja te chamo aqui no direct."
+  },
+  {
+    "media_id": "17912345678901234",
+    "keywords": ["QUERO O PDF"],
+    "reply_text": "Aqui esta o material que voce pediu: <link>"
+  }
+]
+```
+
+- `media_id: "all"` funciona como fallback — vale pra qualquer post que nao tenha
+  uma regra propria (igual ao "todos os posts" do ManyChat).
+- Uma regra com `media_id` especifico so vale pra comentarios naquele post/reel, e
+  tem prioridade sobre a regra `"all"`.
+- `keywords` aceita mais de uma palavra por regra; a comparacao ignora
+  maiusculas/minusculas e acentos.
+- **Como descobrir o `media_id` de um post novo:** comenta qualquer coisa nele com a
+  automacao no ar e olha o log — toda vez que um comentario chega, o servidor imprime
+  `Comentario recebido: media_id=... texto="..."`. Copia esse id, cria a regra, commita
+  e redeploya.
+- Depois de editar `rules.json`, precisa **commitar, dar push e redeployar no
+  EasyPanel** — o arquivo e lido uma vez, na subida do processo.
 
 ## Variaveis de ambiente
 

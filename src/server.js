@@ -1,6 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
 const tokenStore = require("./token-store");
+const { carregarRegras, encontrarRegra } = require("./rules");
 
 const {
   PORT = 3000,
@@ -8,8 +9,6 @@ const {
   IG_APP_SECRET,
   IG_ACCESS_TOKEN,
   IG_USER_ID,
-  TRIGGER_KEYWORD = "AGENTE VERTICAL",
-  REPLY_TEXT = "Oi! Recebi seu comentario, ja te chamo aqui no direct.",
 } = process.env;
 
 for (const [name, value] of Object.entries({
@@ -23,6 +22,9 @@ for (const [name, value] of Object.entries({
     process.exit(1);
   }
 }
+
+let regras = carregarRegras();
+console.log(`${regras.length} regra(s) carregada(s) de rules.json`);
 
 // token de longa duracao (60 dias) do "Gerar token" do painel. Persistido em
 // disco pra sobreviver a restarts (nao a rebuilds/redeploys, que voltam pro
@@ -74,13 +76,6 @@ app.use(
 
 const seenCommentIds = new Set();
 
-function normaliza(texto) {
-  return texto
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toUpperCase();
-}
-
 function assinaturaValida(req) {
   const assinatura = req.get("X-Hub-Signature-256");
   if (!assinatura || !req.rawBody) return false;
@@ -92,7 +87,7 @@ function assinaturaValida(req) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-async function enviarPrivateReply(commentId) {
+async function enviarPrivateReply(commentId, replyText) {
   const resp = await fetch(
     `https://graph.instagram.com/v25.0/${IG_USER_ID}/messages`,
     {
@@ -103,7 +98,7 @@ async function enviarPrivateReply(commentId) {
       },
       body: JSON.stringify({
         recipient: { comment_id: commentId },
-        message: { text: REPLY_TEXT },
+        message: { text: replyText },
       }),
     }
   );
@@ -118,13 +113,17 @@ async function enviarPrivateReply(commentId) {
 function tratarComentario(value) {
   const commentId = value?.id;
   const texto = value?.text;
+  const mediaId = value?.media?.id;
   if (!commentId || !texto) return;
   if (value.from?.id === IG_USER_ID) return; // ignora comentario da propria conta
   if (seenCommentIds.has(commentId)) return; // dedupe: 1 private reply por comentario
 
-  if (normaliza(texto).includes(normaliza(TRIGGER_KEYWORD))) {
+  console.log(`Comentario recebido: media_id=${mediaId} texto="${texto}"`);
+
+  const regra = encontrarRegra(regras, mediaId, texto);
+  if (regra) {
     seenCommentIds.add(commentId);
-    enviarPrivateReply(commentId);
+    enviarPrivateReply(commentId, regra.reply_text);
   }
 }
 
