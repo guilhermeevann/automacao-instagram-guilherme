@@ -12,7 +12,10 @@
 <body>
   <div id="login-screen" class="login-screen">
     <form id="form-login" class="login-card">
-      <h1>Comentário → DM</h1>
+      <div class="brand brand-center">
+        <img src="assets/workflow-logo.png" alt="" class="brand-logo brand-logo-lg" />
+        <h1>Comentário → DM</h1>
+      </div>
       <div id="login-erro" class="erro" hidden></div>
       <div class="campo">
         <label for="login-user">Usuário</label>
@@ -28,7 +31,10 @@
 
   <div id="app-screen" hidden>
     <header>
-      <h1>Comentário → DM</h1>
+      <div class="brand">
+        <img src="assets/workflow-logo.png" alt="" class="brand-logo" />
+        <h1>Comentário → DM</h1>
+      </div>
       <div id="token-status" class="token-status">carregando status do token…</div>
     </header>
 
@@ -71,8 +77,11 @@
       </div>
 
       <div class="campo">
-        <label for="input-keywords">Palavras-chave (separadas por vírgula)</label>
-        <input id="input-keywords" type="text" placeholder="AGENTE VERTICAL, QUERO O PDF" />
+        <label for="tags-keywords-input">Palavras-chave</label>
+        <div class="tags-input" id="tags-keywords">
+          <input id="tags-keywords-input" type="text" placeholder="Digite e pressione Enter" />
+        </div>
+        <p class="campo-ajuda">Uma palavra ou frase por chip. O comentário precisa conter pelo menos uma delas.</p>
       </div>
 
       <div class="campo">

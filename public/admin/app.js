@@ -29,6 +29,70 @@ const api = {
 let postSelecionado = null;
 let editandoId = null;
 
+// ---- input de palavras-chave (chips) ----
+function criarTagsInput(containerEl, inputEl) {
+  let tags = [];
+
+  function render() {
+    containerEl.querySelectorAll(".tag-chip").forEach((el) => el.remove());
+    tags.forEach((tag) => {
+      const chip = document.createElement("span");
+      chip.className = "tag-chip";
+      const label = document.createElement("span");
+      label.textContent = tag;
+      const remover = document.createElement("button");
+      remover.type = "button";
+      remover.textContent = "×";
+      remover.setAttribute("aria-label", `Remover ${tag}`);
+      remover.addEventListener("click", () => {
+        tags = tags.filter((t) => t !== tag);
+        render();
+      });
+      chip.append(label, remover);
+      containerEl.insertBefore(chip, inputEl);
+    });
+  }
+
+  function adicionar(valorBruto) {
+    const valor = valorBruto.trim();
+    if (!valor || tags.includes(valor)) return;
+    tags.push(valor);
+    render();
+  }
+
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      adicionar(inputEl.value);
+      inputEl.value = "";
+    } else if (e.key === "Backspace" && !inputEl.value && tags.length) {
+      tags.pop();
+      render();
+    }
+  });
+
+  inputEl.addEventListener("blur", () => {
+    if (inputEl.value.trim()) {
+      adicionar(inputEl.value);
+      inputEl.value = "";
+    }
+  });
+
+  containerEl.addEventListener("click", (e) => {
+    if (e.target === containerEl) inputEl.focus();
+  });
+
+  return {
+    get: () => tags,
+    set: (novasTags) => { tags = [...(novasTags || [])]; render(); },
+  };
+}
+
+const tagsKeywords = criarTagsInput(
+  document.getElementById("tags-keywords"),
+  document.getElementById("tags-keywords-input")
+);
+
 function escapeHtml(str) {
   return (str || "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -150,7 +214,7 @@ function abrirModalCriacao() {
   document.getElementById("campo-escopo").hidden = false;
   document.querySelector('input[name="escopo"][value="all"]').checked = true;
   campoPosts.hidden = true;
-  document.getElementById("input-keywords").value = "";
+  tagsKeywords.set([]);
   document.getElementById("input-reply").value = "";
   overlay.hidden = false;
 }
@@ -161,7 +225,7 @@ function abrirModalEdicao(regra) {
   document.getElementById("modal-titulo").textContent = "Editar regra";
   document.getElementById("campo-escopo").hidden = true; // nao muda o post depois de criada
   campoPosts.hidden = true;
-  document.getElementById("input-keywords").value = regra.keywords.join(", ");
+  tagsKeywords.set(regra.keywords);
   document.getElementById("input-reply").value = regra.reply_text;
   overlay.hidden = false;
 }
@@ -198,8 +262,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
   const erroEl = document.getElementById("modal-erro");
   erroEl.hidden = true;
 
-  const keywords = document.getElementById("input-keywords").value
-    .split(",").map((k) => k.trim()).filter(Boolean);
+  const keywords = tagsKeywords.get();
   const reply_text = document.getElementById("input-reply").value.trim();
 
   if (keywords.length === 0 || !reply_text) {
