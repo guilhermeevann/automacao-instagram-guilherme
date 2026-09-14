@@ -2,88 +2,95 @@
 
 Webhook receiver de comentario -> private reply no Instagram, via Meta Graph API
 (Instagram API com login do Instagram). Equivalente caseiro do Comments Growth Tool
-do ManyChat: cada post pode ter sua propria palavra-chave e sua propria mensagem.
+do ManyChat: cada post pode ter sua propria palavra-chave e sua propria mensagem,
+gerenciado por um painel web simples em vez de editar arquivo.
 
 ## O que faz
 
 1. Recebe o evento `comments` no `POST /webhook` quando alguem comenta num post/reel.
 2. Confere a assinatura `X-Hub-Signature-256` com o App Secret do Instagram.
-3. Casa o comentario contra `rules.json` (post especifico primeiro, depois a regra
-   `"all"` como fallback) e, se a palavra-chave bater, envia uma private reply via
-   `POST /{IG_USER_ID}/messages` com `recipient.comment_id`.
+3. Casa o comentario contra as regras salvas (post especifico primeiro, depois a
+   regra `"all"` como fallback) e, se a palavra-chave bater, envia uma private reply
+   via `POST /{IG_USER_ID}/messages` com `recipient.comment_id`.
 4. Guarda em memoria os `comment_id` ja respondidos (a Meta so aceita 1 private reply
    por comentario de qualquer forma; isso so evita uma chamada de API repetida).
+5. Registra cada tentativa (sucesso ou falha) no historico, visivel no painel.
 
-## Regras por post (`rules.json`)
+## Painel de administracao (`/admin`)
 
-```json
-[
-  {
-    "media_id": "all",
-    "keywords": ["AGENTE VERTICAL"],
-    "reply_text": "Oi! Recebi seu comentario, ja te chamo aqui no direct."
-  },
-  {
-    "media_id": "17912345678901234",
-    "keywords": ["QUERO O PDF"],
-    "reply_text": "Aqui esta o material que voce pediu: <link>"
-  }
-]
-```
+Pagina unica (HTML+JS, sem build step) protegida por **HTTP Basic Auth**
+(`ADMIN_USER`/`ADMIN_PASSWORD`). Da pra:
 
-- `media_id: "all"` funciona como fallback — vale pra qualquer post que nao tenha
-  uma regra propria (igual ao "todos os posts" do ManyChat).
-- Uma regra com `media_id` especifico so vale pra comentarios naquele post/reel, e
-  tem prioridade sobre a regra `"all"`.
-- `keywords` aceita mais de uma palavra por regra; a comparacao ignora
-  maiusculas/minusculas e acentos.
-- **Como descobrir o `media_id` de um post novo:** comenta qualquer coisa nele com a
-  automacao no ar e olha o log — toda vez que um comentario chega, o servidor imprime
-  `Comentario recebido: media_id=... texto="..."`. Copia esse id, cria a regra, commita
-  e redeploya.
-- Depois de editar `rules.json`, precisa **commitar, dar push e redeployar no
-  EasyPanel** — o arquivo e lido uma vez, na subida do processo.
+- **Regras:** criar/editar/apagar. Ao criar uma regra por post especifico, o painel
+  busca os ultimos posts/reels via API do Instagram e mostra as miniaturas pra
+  escolher — nao precisa mais descobrir `media_id` no log nem editar JSON na mao.
+  A regra `"Todos os posts"` (fallback) e so mais uma regra, sem miniatura.
+- **Historico:** ultimos comentarios respondidos, com status (enviado/falhou).
+- **Status do token:** ha quanto tempo foi renovado e validade estimada, no topo da
+  pagina.
+
+Acesse em `https://<sua-url-do-easypanel>/admin`.
+
+## Onde os dados moram
+
+Tres arquivos dentro da pasta `data/` (fora do git, pensada pra ficar num **volume
+persistente** montado no EasyPanel):
+
+- `rules.json` — as regras. Na primeira subida, se nao existir ainda, e semeado a
+  partir do `rules.json` da raiz do repo (que serve so de modelo inicial).
+- `history.json` — ultimos 200 comentarios respondidos.
+- `token.json` — token de acesso atual + quando foi renovado.
+
+**Por isso o volume importa:** sem ele, tudo isso vive só no filesystem do
+container, que sobrevive a um *restart* mas é apagado num *redeploy* (rebuild da
+imagem) — voce perderia as regras criadas pelo painel e o token voltaria pro valor
+antigo da env var a cada deploy.
+
+### Configurar o volume no EasyPanel
+
+No app, aba de armazenamento/volumes: monta um volume persistente no caminho
+`/app/data` (mesmo caminho que o codigo usa por padrao). Uma vez montado, qualquer
+redeploy futuro preserva regras, historico e token.
 
 ## Variaveis de ambiente
 
 Ver `.env.example`. Preencher no EasyPanel:
 
-- `VERIFY_TOKEN` — string livre, usada so na verificacao do webhook (ja gerada, ver `.env` local).
+- `VERIFY_TOKEN` — string livre, usada so na verificacao do webhook.
 - `IG_APP_SECRET` — chave secreta do **app do Instagram** (nao a do app principal da Meta).
 - `IG_ACCESS_TOKEN` — token de acesso do Instagram gerado pelo botao "Gerar token" do
-  painel (ja e de longa duracao, 60 dias). O servidor renova ele sozinho (ver abaixo)
-  e persiste o token renovado em `data/token.json`.
+  painel da Meta (ja e de longa duracao, 60 dias). So e usado se ainda nao existir
+  `data/token.json` (primeira subida, ou volume novo).
 - `IG_USER_ID` — IGSID da conta profissional (`17841400654167125`).
+- `ADMIN_USER` / `ADMIN_PASSWORD` — login do painel `/admin`.
 
 ## Renovacao automatica do token
 
 O token de 60 dias pode ser renovado por mais 60 dias assim que tiver pelo menos 24h
 de vida. O servidor faz isso sozinho: ao subir, e depois a cada 24h, chama
-`refresh_access_token` e salva o resultado em `data/token.json` (ignorado pelo git).
-
-**Limite conhecido:** esse arquivo sobrevive a um *restart* do container, mas nao a um
-*redeploy* (rebuild da imagem) — nesse caso o servidor volta a usar o valor da env var
-`IG_ACCESS_TOKEN`, que pode estar desatualizado se fizer muito tempo desde a ultima vez
-que foi editada manualmente. Pra evitar isso: sempre que for redeployar depois de uns
-30-40 dias no ar, olha o log mais recente (`Token renovado, valido por mais ~N dias`)
-e atualiza a env var no EasyPanel com esse valor antes de redeployar. Um jeito mais
-robusto (persistir num volume ou banco) fica pra quando isso virar dor de verdade.
+`refresh_access_token` e salva o resultado em `data/token.json`. Com o volume
+persistente configurado, esse ciclo roda indefinidamente sem precisar de intervencao
+manual.
 
 ## Deploy no EasyPanel
 
 1. Criar um app novo apontando pra este repo (`guilhermeevann/automacao-instagram-guilherme`).
 2. Build via Dockerfile (ja incluido) ou Nixpacks (Node 18+, `npm start`).
 3. Configurar as variaveis de ambiente acima na aba de Environment do app.
-4. Expor a porta 3000 publicamente — o EasyPanel gera uma URL tipo
+4. **Montar o volume persistente** em `/app/data` (ver secao acima).
+5. Expor a porta 3000 publicamente — o EasyPanel gera uma URL tipo
    `https://automacao-instagram-guilherme.xxxx.easypanel.host`.
-5. Essa URL + `/webhook` e o **Callback URL** a cadastrar no painel da Meta
+6. Essa URL + `/webhook` e o **Callback URL** a cadastrar no painel da Meta
    (produto Instagram -> Configuracao da API -> passo 3, Configurar webhooks).
    O **Verify Token** la tem que ser identico ao `VERIFY_TOKEN` daqui.
+7. Acessa `<url>/admin` com o `ADMIN_USER`/`ADMIN_PASSWORD` configurados.
 
 ## Limitacoes conhecidas (MVP)
 
 - Dedupe de comentario e em memoria — reinicio do processo zera a lista (nao critico,
   a Meta bloqueia reenvio de qualquer forma).
-- Redeploy (rebuild) perde o token renovado em disco e volta pro valor da env var —
-  ver secao "Renovacao automatica do token" acima.
-- Sem retry/queue se a chamada de `/messages` falhar — so loga no console.
+- Sem retry/queue se a chamada de `/messages` falhar — fica registrado no historico
+  como "falhou", mas nao tenta de novo sozinho.
+- `/api/media` busca so os ultimos 25 posts/reels — pra postar uma regra num post
+  mais antigo, ainda precisa criar a regra manualmente com o `media_id` (visivel no
+  log quando um comentario chega naquele post).

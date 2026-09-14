@@ -13,12 +13,20 @@ function load() {
   }
 }
 
-function save(accessToken) {
+function save(accessToken, expiresInSeconds) {
   const dir = path.dirname(STORE_PATH);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     STORE_PATH,
-    JSON.stringify({ access_token: accessToken, updated_at: Date.now() }, null, 2)
+    JSON.stringify(
+      {
+        access_token: accessToken,
+        updated_at: Date.now(),
+        expires_in_seconds: expiresInSeconds || null,
+      },
+      null,
+      2
+    )
   );
 }
 

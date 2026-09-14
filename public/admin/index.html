@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Automação Instagram — Regras</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="login-screen" class="login-screen">
+    <form id="form-login" class="login-card">
+      <h1>Comentário → DM</h1>
+      <div id="login-erro" class="erro" hidden></div>
+      <div class="campo">
+        <label for="login-user">Usuário</label>
+        <input id="login-user" type="text" autocomplete="username" />
+      </div>
+      <div class="campo">
+        <label for="login-senha">Senha</label>
+        <input id="login-senha" type="password" autocomplete="current-password" />
+      </div>
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+
+  <div id="app-screen" hidden>
+    <header>
+      <h1>Comentário → DM</h1>
+      <div id="token-status" class="token-status">carregando status do token…</div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="regras">Regras</button>
+      <button class="tab-btn" data-tab="historico">Histórico</button>
+    </nav>
+
+    <main>
+    <section id="tab-regras" class="tab-panel active">
+      <div class="toolbar">
+        <button id="btn-nova-regra">+ Nova regra</button>
+      </div>
+      <div id="lista-regras" class="regras-lista">carregando regras…</div>
+    </section>
+
+    <section id="tab-historico" class="tab-panel">
+      <div id="lista-historico">carregando histórico…</div>
+    </section>
+    </main>
+  </div>
+
+  <div id="modal-overlay" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2 id="modal-titulo">Nova regra</h2>
+
+      <div id="modal-erro" class="erro" hidden></div>
+
+      <div class="campo" id="campo-escopo">
+        <label>Aplicar a</label>
+        <div class="escopo-opcoes">
+          <label><input type="radio" name="escopo" value="all" checked /> Todos os posts</label>
+          <label><input type="radio" name="escopo" value="post" /> Post específico</label>
+        </div>
+      </div>
+
+      <div class="campo" id="campo-posts" hidden>
+        <label>Escolha o post</label>
+        <div id="grid-posts" class="grid-posts">carregando posts…</div>
+      </div>
+
+      <div class="campo">
+        <label for="input-keywords">Palavras-chave (separadas por vírgula)</label>
+        <input id="input-keywords" type="text" placeholder="AGENTE VERTICAL, QUERO O PDF" />
+      </div>
+
+      <div class="campo">
+        <label for="input-reply">Mensagem enviada por DM</label>
+        <textarea id="input-reply" rows="4" placeholder="Oi! Recebi seu comentário..."></textarea>
+      </div>
+
+      <div class="modal-acoes">
+        <button id="btn-cancelar" class="secundario">Cancelar</button>
+        <button id="btn-salvar">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
