@@ -33,24 +33,23 @@ Acesse em `https://<sua-url-do-easypanel>/admin`.
 
 ## Onde os dados moram
 
-Tres arquivos dentro da pasta `data/` (fora do git, pensada pra ficar num **volume
-persistente** montado no EasyPanel):
+**Postgres (Supabase)**, via `DATABASE_URL`. Tres tabelas, todas com `account_id`
+(pensado pra multiplas contas no futuro, mesmo que hoje so exista a do Guilherme):
 
-- `rules.json` — as regras. Na primeira subida, se nao existir ainda, e semeado a
-  partir do `rules.json` da raiz do repo (que serve so de modelo inicial).
-- `history.json` — ultimos 200 comentarios respondidos.
-- `token.json` — token de acesso atual + quando foi renovado.
+- `ig_accounts` — token de acesso atual, quando foi renovado, IGSID.
+- `rules` — as regras (`media_id`, `keywords[]`, `reply_text`, miniatura do post).
+  Na primeira subida, se a conta ainda nao tiver nenhuma regra, e semeada a partir
+  do `rules.json` da raiz do repo (que serve so de modelo inicial).
+- `comment_history` — cada comentario respondido, sucesso ou falha.
 
-**Por isso o volume importa:** sem ele, tudo isso vive só no filesystem do
-container, que sobrevive a um *restart* mas é apagado num *redeploy* (rebuild da
-imagem) — voce perderia as regras criadas pelo painel e o token voltaria pro valor
-antigo da env var a cada deploy.
+O schema (`CREATE TABLE IF NOT EXISTS`) roda sozinho no boot (`src/db.js`) — nao
+precisa rodar migration manual.
 
-### Configurar o volume no EasyPanel
-
-No app, aba de armazenamento/volumes: monta um volume persistente no caminho
-`/app/data` (mesmo caminho que o codigo usa por padrao). Uma vez montado, qualquer
-redeploy futuro preserva regras, historico e token.
+**Nota sobre TLS:** o Postgres do Supabase (pooler e conexao direta) apresenta um
+certificado intermediario autoassinado na cadeia — comportamento conhecido e
+documentado pelo proprio Supabase. Por isso `src/db.js` usa
+`ssl: { rejectUnauthorized: false }`: a conexao continua criptografada, so a
+validacao contra autoridades publicas fica desligada.
 
 ## Variaveis de ambiente
 
@@ -59,31 +58,32 @@ Ver `.env.example`. Preencher no EasyPanel:
 - `VERIFY_TOKEN` — string livre, usada so na verificacao do webhook.
 - `IG_APP_SECRET` — chave secreta do **app do Instagram** (nao a do app principal da Meta).
 - `IG_ACCESS_TOKEN` — token de acesso do Instagram gerado pelo botao "Gerar token" do
-  painel da Meta (ja e de longa duracao, 60 dias). So e usado se ainda nao existir
-  `data/token.json` (primeira subida, ou volume novo).
+  painel da Meta (ja e de longa duracao, 60 dias). So e usado se a conta ainda nao
+  existir na tabela `ig_accounts` (primeira subida).
 - `IG_USER_ID` — IGSID da conta profissional (`17841400654167125`).
 - `ADMIN_USER` / `ADMIN_PASSWORD` — login do painel `/admin`.
+- `DATABASE_URL` — connection string do Postgres (Supabase).
 
 ## Renovacao automatica do token
 
 O token de 60 dias pode ser renovado por mais 60 dias assim que tiver pelo menos 24h
 de vida. O servidor faz isso sozinho: ao subir, e depois a cada 24h, chama
-`refresh_access_token` e salva o resultado em `data/token.json`. Com o volume
-persistente configurado, esse ciclo roda indefinidamente sem precisar de intervencao
-manual.
+`refresh_access_token` e atualiza a tabela `ig_accounts`. Como fica no Postgres,
+sobrevive a qualquer redeploy sem precisar de volume nem intervencao manual.
 
 ## Deploy no EasyPanel
 
 1. Criar um app novo apontando pra este repo (`guilhermeevann/automacao-instagram-guilherme`).
 2. Build via Dockerfile (ja incluido) ou Nixpacks (Node 18+, `npm start`).
-3. Configurar as variaveis de ambiente acima na aba de Environment do app.
-4. **Montar o volume persistente** em `/app/data` (ver secao acima).
-5. Expor a porta 3000 publicamente — o EasyPanel gera uma URL tipo
+3. Configurar as variaveis de ambiente acima na aba de Environment do app
+   (incluindo `DATABASE_URL`). Nao precisa de volume persistente — os dados ficam
+   no Supabase.
+4. Expor a porta 3000 publicamente — o EasyPanel gera uma URL tipo
    `https://automacao-instagram-guilherme.xxxx.easypanel.host`.
-6. Essa URL + `/webhook` e o **Callback URL** a cadastrar no painel da Meta
+5. Essa URL + `/webhook` e o **Callback URL** a cadastrar no painel da Meta
    (produto Instagram -> Configuracao da API -> passo 3, Configurar webhooks).
    O **Verify Token** la tem que ser identico ao `VERIFY_TOKEN` daqui.
-7. Acessa `<url>/admin` com o `ADMIN_USER`/`ADMIN_PASSWORD` configurados.
+6. Acessa `<url>/admin` com o `ADMIN_USER`/`ADMIN_PASSWORD` configurados.
 
 ## Limitacoes conhecidas (MVP)
 

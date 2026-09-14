@@ -1,30 +1,26 @@
-const fs = require("fs");
-const path = require("path");
+const { pool } = require("./db");
 
-const STORE_PATH =
-  process.env.HISTORY_STORE_PATH || path.join(__dirname, "..", "data", "history.json");
-const LIMITE = 200;
-
-function ler() {
-  try {
-    const raw = fs.readFileSync(STORE_PATH, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+async function registrar({ accountId, comment_id, media_id, regra_id, commenter_id, commenter_username, comment_text, reply_text, status, error }) {
+  await pool.query(
+    `INSERT INTO comment_history
+       (account_id, comment_id, media_id, rule_id, commenter_id, commenter_username, comment_text, reply_text, status, error)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [accountId, comment_id, media_id || null, regra_id || null, commenter_id || null, commenter_username || null, comment_text || null, reply_text || null, status, error ? JSON.stringify(error) : null]
+  );
 }
 
-function registrar(entrada) {
-  const dir = path.dirname(STORE_PATH);
-  fs.mkdirSync(dir, { recursive: true });
-  const historico = ler();
-  historico.push({ timestamp: Date.now(), ...entrada });
-  const cortado = historico.slice(-LIMITE);
-  fs.writeFileSync(STORE_PATH, JSON.stringify(cortado, null, 2));
-}
-
-function listar(limite = 100) {
-  return ler().slice(-limite).reverse();
+async function listar(accountId, limite = 100) {
+  const { rows } = await pool.query(
+    `SELECT comment_id, media_id, commenter_id, commenter_username, comment_text, reply_text, status, error, created_at
+     FROM comment_history
+     WHERE account_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [accountId, limite]
+  );
+  // node-pg devolve timestamptz como Date; convertido pra epoch-ms aqui pra
+  // o front nao precisar lidar com formato de data variavel.
+  return rows.map((r) => ({ ...r, timestamp: r.created_at.getTime(), created_at: undefined }));
 }
 
 module.exports = { registrar, listar };
