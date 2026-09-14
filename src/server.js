@@ -118,6 +118,22 @@ async function main() {
     return { ok: resp.ok, data };
   }
 
+  async function enviarRespostaPublica(commentId, texto) {
+    const resp = await fetch(
+      `https://graph.instagram.com/v25.0/${commentId}/replies`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+        body: JSON.stringify({ message: texto }),
+      }
+    );
+    const data = await resp.json().catch(() => ({}));
+    return { ok: resp.ok, data };
+  }
+
   async function tratarComentario(value) {
     const commentId = value?.id;
     const texto = value?.text;
@@ -135,6 +151,11 @@ async function main() {
     seenCommentIds.add(commentId);
     const resultado = await enviarPrivateReply(commentId, regra.reply_text);
 
+    let resultadoPublico = null;
+    if (regra.comment_reply_text) {
+      resultadoPublico = await enviarRespostaPublica(commentId, regra.comment_reply_text);
+    }
+
     await historyStore.registrar({
       accountId: account.id,
       comment_id: commentId,
@@ -146,12 +167,21 @@ async function main() {
       reply_text: regra.reply_text,
       status: resultado.ok ? "sent" : "failed",
       error: resultado.ok ? null : resultado.data,
+      comment_reply_status: resultadoPublico ? (resultadoPublico.ok ? "sent" : "failed") : null,
+      comment_reply_error: resultadoPublico && !resultadoPublico.ok ? resultadoPublico.data : null,
     });
 
     if (resultado.ok) {
       console.log("Private reply enviada", commentId, resultado.data);
     } else {
       console.error("Falha ao enviar private reply", commentId, resultado.data);
+    }
+    if (resultadoPublico) {
+      if (resultadoPublico.ok) {
+        console.log("Resposta publica enviada", commentId, resultadoPublico.data);
+      } else {
+        console.error("Falha ao enviar resposta publica", commentId, resultadoPublico.data);
+      }
     }
   }
 

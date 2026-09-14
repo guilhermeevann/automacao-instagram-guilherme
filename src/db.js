@@ -47,6 +47,10 @@ async function init() {
 
     CREATE INDEX IF NOT EXISTS rules_account_media_idx ON rules (account_id, media_id);
     CREATE INDEX IF NOT EXISTS comment_history_account_idx ON comment_history (account_id, created_at DESC);
+
+    ALTER TABLE rules ADD COLUMN IF NOT EXISTS comment_reply_text TEXT;
+    ALTER TABLE comment_history ADD COLUMN IF NOT EXISTS comment_reply_status TEXT;
+    ALTER TABLE comment_history ADD COLUMN IF NOT EXISTS comment_reply_error JSONB;
   `);
 }
 

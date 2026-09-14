@@ -12,9 +12,13 @@ gerenciado por um painel web simples em vez de editar arquivo.
 3. Casa o comentario contra as regras salvas (post especifico primeiro, depois a
    regra `"all"` como fallback) e, se a palavra-chave bater, envia uma private reply
    via `POST /{IG_USER_ID}/messages` com `recipient.comment_id`.
-4. Guarda em memoria os `comment_id` ja respondidos (a Meta so aceita 1 private reply
+4. Se a regra tiver `comment_reply_text` preenchido, tambem comenta publicamente
+   embaixo do comentario da pessoa via `POST /{comment-id}/replies` — independente
+   do resultado da DM (um falhar nao trava o outro).
+5. Guarda em memoria os `comment_id` ja respondidos (a Meta so aceita 1 private reply
    por comentario de qualquer forma; isso so evita uma chamada de API repetida).
-5. Registra cada tentativa (sucesso ou falha) no historico, visivel no painel.
+6. Registra cada tentativa (DM e resposta publica, sucesso ou falha) no historico,
+   visivel no painel.
 
 ## Painel de administracao (`/admin`)
 
@@ -25,6 +29,10 @@ Pagina unica (HTML+JS, sem build step) protegida por **HTTP Basic Auth**
   busca os ultimos posts/reels via API do Instagram e mostra as miniaturas pra
   escolher — nao precisa mais descobrir `media_id` no log nem editar JSON na mao.
   A regra `"Todos os posts"` (fallback) e so mais uma regra, sem miniatura.
+  Palavras-chave sao um input de chips (nao mais texto separado por virgula),
+  com validacao que ignora maiusculas/minusculas pra evitar duplicata
+  ("AGENTE VERTICAL" e "agente vertical" contam como a mesma). Cada regra tambem
+  aceita uma resposta publica opcional pro comentario, alem da DM.
 - **Historico:** ultimos comentarios respondidos, com status (enviado/falhou).
 - **Status do token:** ha quanto tempo foi renovado e validade estimada, no topo da
   pagina.
@@ -37,13 +45,16 @@ Acesse em `https://<sua-url-do-easypanel>/admin`.
 (pensado pra multiplas contas no futuro, mesmo que hoje so exista a do Guilherme):
 
 - `ig_accounts` — token de acesso atual, quando foi renovado, IGSID.
-- `rules` — as regras (`media_id`, `keywords[]`, `reply_text`, miniatura do post).
-  Na primeira subida, se a conta ainda nao tiver nenhuma regra, e semeada a partir
-  do `rules.json` da raiz do repo (que serve so de modelo inicial).
-- `comment_history` — cada comentario respondido, sucesso ou falha.
+- `rules` — as regras (`media_id`, `keywords[]`, `reply_text`, `comment_reply_text`
+  opcional, miniatura do post). Na primeira subida, se a conta ainda nao tiver
+  nenhuma regra, e semeada a partir do `rules.json` da raiz do repo (que serve so
+  de modelo inicial).
+- `comment_history` — cada comentario respondido, com status separado pra DM
+  (`status`/`error`) e pra resposta publica (`comment_reply_status`/`comment_reply_error`).
 
-O schema (`CREATE TABLE IF NOT EXISTS`) roda sozinho no boot (`src/db.js`) — nao
-precisa rodar migration manual.
+O schema (`CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS`
+pras colunas novas) roda sozinho no boot (`src/db.js`) — nao precisa rodar
+migration manual.
 
 **Nota sobre TLS:** o Postgres do Supabase (pooler e conexao direta) apresenta um
 certificado intermediario autoassinado na cadeia — comportamento conhecido e

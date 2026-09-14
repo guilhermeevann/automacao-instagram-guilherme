@@ -166,6 +166,11 @@ button.perigo:hover { color: var(--danger); background: var(--danger-bg); }
 }
 
 .regra-reply { font-size: 13px; color: var(--text-secondary); white-space: pre-wrap; line-height: 1.5; }
+.regra-reply-publica {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
 
 .regra-acoes { display: flex; gap: 4px; flex-shrink: 0; }
 

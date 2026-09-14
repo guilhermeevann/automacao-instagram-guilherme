@@ -53,9 +53,16 @@ function criarTagsInput(containerEl, inputEl) {
     });
   }
 
+  function normalizarChave(str) {
+    return str.trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+  }
+
   function adicionar(valorBruto) {
     const valor = valorBruto.trim();
-    if (!valor || tags.includes(valor)) return;
+    if (!valor) return;
+    const chaveNova = normalizarChave(valor);
+    // nao-case-sensitive: "agente vertical" e "AGENTE VERTICAL" contam como a mesma
+    if (tags.some((t) => normalizarChave(t) === chaveNova)) return;
     tags.push(valor);
     render();
   }
@@ -162,6 +169,9 @@ function renderRegraCard(regra) {
   const titulo = regra.media_id === "all" ? "Todos os posts" : "Post específico";
   const legenda = regra.media_id === "all" ? "" : escapeHtml(regra.media_caption_snippet || "");
   const keywords = regra.keywords.map((k) => `<span class="keyword-chip">${escapeHtml(k)}</span>`).join("");
+  const respostaPublica = regra.comment_reply_text
+    ? `<div class="regra-reply regra-reply-publica">💬 ${escapeHtml(regra.comment_reply_text)}</div>`
+    : "";
 
   return `
     <div class="regra-card">
@@ -171,6 +181,7 @@ function renderRegraCard(regra) {
         ${legenda ? `<div class="regra-legenda">${legenda}</div>` : ""}
         <div class="regra-keywords">${keywords}</div>
         <div class="regra-reply">${escapeHtml(regra.reply_text)}</div>
+        ${respostaPublica}
       </div>
       <div class="regra-acoes">
         <button class="icone" data-editar="${regra.id}" title="Editar">✏️</button>
@@ -216,6 +227,7 @@ function abrirModalCriacao() {
   campoPosts.hidden = true;
   tagsKeywords.set([]);
   document.getElementById("input-reply").value = "";
+  document.getElementById("input-comment-reply").value = "";
   overlay.hidden = false;
 }
 
@@ -227,6 +239,7 @@ function abrirModalEdicao(regra) {
   campoPosts.hidden = true;
   tagsKeywords.set(regra.keywords);
   document.getElementById("input-reply").value = regra.reply_text;
+  document.getElementById("input-comment-reply").value = regra.comment_reply_text || "";
   overlay.hidden = false;
 }
 
@@ -264,6 +277,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
 
   const keywords = tagsKeywords.get();
   const reply_text = document.getElementById("input-reply").value.trim();
+  const comment_reply_text = document.getElementById("input-comment-reply").value.trim();
 
   if (keywords.length === 0 || !reply_text) {
     erroEl.textContent = "Preenche pelo menos uma palavra-chave e a mensagem.";
@@ -273,7 +287,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
 
   try {
     if (editandoId) {
-      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text });
+      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text });
     } else {
       const escopo = document.querySelector('input[name="escopo"]:checked').value;
       if (escopo === "post" && !postSelecionado) {
@@ -282,7 +296,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
         return;
       }
       const body = escopo === "all"
-        ? { media_id: "all", keywords, reply_text }
+        ? { media_id: "all", keywords, reply_text, comment_reply_text }
         : {
             media_id: postSelecionado.id,
             media_thumbnail: postSelecionado.thumbnail,
@@ -290,6 +304,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
             media_permalink: postSelecionado.permalink,
             keywords,
             reply_text,
+            comment_reply_text,
           };
       await api.send("POST", "/api/rules", body);
     }
@@ -312,7 +327,7 @@ async function carregarHistorico() {
     }
     container.innerHTML = `
       <table>
-        <thead><tr><th>Quando</th><th>Quem</th><th>Comentário</th><th>Status</th></tr></thead>
+        <thead><tr><th>Quando</th><th>Quem</th><th>Comentário</th><th>DM</th><th>Resposta pública</th></tr></thead>
         <tbody>
           ${historico.map((h) => `
             <tr>
@@ -320,6 +335,9 @@ async function carregarHistorico() {
               <td>${escapeHtml(h.commenter_username || h.commenter_id || "?")}</td>
               <td>${escapeHtml(h.comment_text || "")}</td>
               <td class="${h.status === "sent" ? "status-ok" : "status-erro"}">${h.status === "sent" ? "Enviado" : "Falhou"}</td>
+              <td class="${h.comment_reply_status === "sent" ? "status-ok" : h.comment_reply_status === "failed" ? "status-erro" : ""}">${
+                h.comment_reply_status === "sent" ? "Enviada" : h.comment_reply_status === "failed" ? "Falhou" : "—"
+              }</td>
             </tr>
           `).join("")}
         </tbody>
