@@ -5,6 +5,8 @@ Webhook receiver de comentario -> private reply no Instagram, via Meta Graph API
 do ManyChat: cada post pode ter sua propria palavra-chave e sua propria mensagem,
 gerenciado por um painel web simples em vez de editar arquivo.
 
+**Quer rodar a sua?** Comece pelo [SETUP.md](SETUP.md) — passo a passo do zero, em 3 etapas.
+
 ## O que faz
 
 1. Recebe o evento `comments` no `POST /webhook` quando alguem comenta num post/reel.
