@@ -73,7 +73,8 @@ Ver `.env.example`. Preencher no EasyPanel:
 - `IG_ACCESS_TOKEN` — token de acesso do Instagram gerado pelo botao "Gerar token" do
   painel da Meta (ja e de longa duracao, 60 dias). So e usado se a conta ainda nao
   existir na tabela `ig_accounts` (primeira subida).
-- `IG_USER_ID` — IGSID da conta profissional (`17841400654167125`).
+- `IG_USER_ID` — IGSID da conta profissional (aparece do lado do nome dela na lista
+  de Testadores do Instagram, no painel da Meta).
 - `ADMIN_USER` / `ADMIN_PASSWORD` — login do painel `/admin`.
 - `DATABASE_URL` — connection string do Postgres (Supabase).
 
