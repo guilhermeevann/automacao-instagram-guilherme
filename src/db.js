@@ -51,6 +51,18 @@ async function init() {
     ALTER TABLE rules ADD COLUMN IF NOT EXISTS comment_reply_text TEXT;
     ALTER TABLE comment_history ADD COLUMN IF NOT EXISTS comment_reply_status TEXT;
     ALTER TABLE comment_history ADD COLUMN IF NOT EXISTS comment_reply_error JSONB;
+
+    ALTER TABLE rules ADD COLUMN IF NOT EXISTS require_follow BOOLEAN NOT NULL DEFAULT false;
+
+    CREATE TABLE IF NOT EXISTS follow_gates (
+      id SERIAL PRIMARY KEY,
+      account_id INTEGER NOT NULL REFERENCES ig_accounts(id),
+      igsid TEXT NOT NULL,
+      rule_id UUID NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+      comment_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (account_id, igsid)
+    );
   `);
 }
 

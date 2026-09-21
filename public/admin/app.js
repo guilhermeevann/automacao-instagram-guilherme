@@ -172,12 +172,15 @@ function renderRegraCard(regra) {
   const respostaPublica = regra.comment_reply_text
     ? `<div class="regra-reply regra-reply-publica">💬 ${escapeHtml(regra.comment_reply_text)}</div>`
     : "";
+  const badgeSeguir = regra.require_follow
+    ? `<span class="badge-seguir">🔒 exige seguir</span>`
+    : "";
 
   return `
     <div class="regra-card">
       ${thumb}
       <div class="regra-corpo">
-        <div class="regra-titulo">${titulo}</div>
+        <div class="regra-titulo">${titulo} ${badgeSeguir}</div>
         ${legenda ? `<div class="regra-legenda">${legenda}</div>` : ""}
         <div class="regra-keywords">${keywords}</div>
         <div class="regra-reply">${escapeHtml(regra.reply_text)}</div>
@@ -228,6 +231,7 @@ function abrirModalCriacao() {
   tagsKeywords.set([]);
   document.getElementById("input-reply").value = "";
   document.getElementById("input-comment-reply").value = "";
+  document.getElementById("input-require-follow").checked = false;
   overlay.hidden = false;
 }
 
@@ -240,6 +244,7 @@ function abrirModalEdicao(regra) {
   tagsKeywords.set(regra.keywords);
   document.getElementById("input-reply").value = regra.reply_text;
   document.getElementById("input-comment-reply").value = regra.comment_reply_text || "";
+  document.getElementById("input-require-follow").checked = Boolean(regra.require_follow);
   overlay.hidden = false;
 }
 
@@ -278,6 +283,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
   const keywords = tagsKeywords.get();
   const reply_text = document.getElementById("input-reply").value.trim();
   const comment_reply_text = document.getElementById("input-comment-reply").value.trim();
+  const require_follow = document.getElementById("input-require-follow").checked;
 
   if (keywords.length === 0 || !reply_text) {
     erroEl.textContent = "Preenche pelo menos uma palavra-chave e a mensagem.";
@@ -287,7 +293,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
 
   try {
     if (editandoId) {
-      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text });
+      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text, require_follow });
     } else {
       const escopo = document.querySelector('input[name="escopo"]:checked').value;
       if (escopo === "post" && !postSelecionado) {
@@ -296,7 +302,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
         return;
       }
       const body = escopo === "all"
-        ? { media_id: "all", keywords, reply_text, comment_reply_text }
+        ? { media_id: "all", keywords, reply_text, comment_reply_text, require_follow }
         : {
             media_id: postSelecionado.id,
             media_thumbnail: postSelecionado.thumbnail,
@@ -305,6 +311,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
             keywords,
             reply_text,
             comment_reply_text,
+            require_follow,
           };
       await api.send("POST", "/api/rules", body);
     }
@@ -334,7 +341,9 @@ async function carregarHistorico() {
               <td>${new Date(h.timestamp).toLocaleString("pt-BR")}</td>
               <td>${escapeHtml(h.commenter_username || h.commenter_id || "?")}</td>
               <td>${escapeHtml(h.comment_text || "")}</td>
-              <td class="${h.status === "sent" ? "status-ok" : "status-erro"}">${h.status === "sent" ? "Enviado" : "Falhou"}</td>
+              <td class="${h.status === "sent" ? "status-ok" : h.status === "aguardando_seguir" ? "status-pendente" : "status-erro"}">${
+                h.status === "sent" ? "Enviado" : h.status === "aguardando_seguir" ? "Aguardando seguir" : "Falhou"
+              }</td>
               <td class="${h.comment_reply_status === "sent" ? "status-ok" : h.comment_reply_status === "failed" ? "status-erro" : ""}">${
                 h.comment_reply_status === "sent" ? "Enviada" : h.comment_reply_status === "failed" ? "Falhou" : "—"
               }</td>

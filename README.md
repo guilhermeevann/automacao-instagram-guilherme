@@ -17,9 +17,14 @@ gerenciado por um painel web simples em vez de editar arquivo.
 4. Se a regra tiver `comment_reply_text` preenchido, tambem comenta publicamente
    embaixo do comentario da pessoa via `POST /{comment-id}/replies` — independente
    do resultado da DM (um falhar nao trava o outro).
-5. Guarda em memoria os `comment_id` ja respondidos (a Meta so aceita 1 private reply
+5. Se a regra tiver `require_follow` ligado, antes de mandar o conteudo confere se a
+   pessoa segue a conta (`GET /<IGSID>?fields=is_user_follow_business`). Se nao
+   seguir, manda um pedido pra seguir em vez do conteudo e guarda a pessoa como
+   pendente. Quando ela manda qualquer mensagem de volta (webhook `messaging`),
+   confere de novo e libera o conteudo se confirmado.
+6. Guarda em memoria os `comment_id` ja respondidos (a Meta so aceita 1 private reply
    por comentario de qualquer forma; isso so evita uma chamada de API repetida).
-6. Registra cada tentativa (DM e resposta publica, sucesso ou falha) no historico,
+7. Registra cada tentativa (DM e resposta publica, sucesso ou falha) no historico,
    visivel no painel.
 
 ## Painel de administracao (`/admin`)
@@ -34,7 +39,8 @@ Pagina unica (HTML+JS, sem build step) protegida por **HTTP Basic Auth**
   Palavras-chave sao um input de chips (nao mais texto separado por virgula),
   com validacao que ignora maiusculas/minusculas pra evitar duplicata
   ("AGENTE VERTICAL" e "agente vertical" contam como a mesma). Cada regra tambem
-  aceita uma resposta publica opcional pro comentario, alem da DM.
+  aceita uma resposta publica opcional pro comentario, alem da DM, e um checkbox
+  "Exigir que a pessoa siga antes de entregar" — liga o fluxo de gate descrito acima.
 - **Historico:** ultimos comentarios respondidos, com status (enviado/falhou).
 - **Status do token:** ha quanto tempo foi renovado e validade estimada, no topo da
   pagina.
@@ -48,11 +54,15 @@ Acesse em `https://<sua-url-do-easypanel>/admin`.
 
 - `ig_accounts` — token de acesso atual, quando foi renovado, IGSID.
 - `rules` — as regras (`media_id`, `keywords[]`, `reply_text`, `comment_reply_text`
-  opcional, miniatura do post). Na primeira subida, se a conta ainda nao tiver
-  nenhuma regra, e semeada a partir do `rules.json` da raiz do repo (que serve so
-  de modelo inicial).
+  opcional, `require_follow` opcional, miniatura do post). Na primeira subida, se a
+  conta ainda nao tiver nenhuma regra, e semeada a partir do `rules.json` da raiz do
+  repo (que serve so de modelo inicial).
 - `comment_history` — cada comentario respondido, com status separado pra DM
-  (`status`/`error`) e pra resposta publica (`comment_reply_status`/`comment_reply_error`).
+  (`status`/`error`, incluindo o status `aguardando_seguir`) e pra resposta publica
+  (`comment_reply_status`/`comment_reply_error`).
+- `follow_gates` — quem esta esperando confirmar que segue antes de receber o
+  conteudo de uma regra com `require_follow`. Uma linha por pessoa (por conta); um
+  novo comentario da mesma pessoa substitui o gate pendente anterior.
 
 O schema (`CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN IF NOT EXISTS`
 pras colunas novas) roda sozinho no boot (`src/db.js`) — nao precisa rodar

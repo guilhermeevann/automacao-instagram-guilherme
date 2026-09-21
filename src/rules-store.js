@@ -26,15 +26,15 @@ async function listar(accountId) {
   return rows;
 }
 
-async function criar({ accountId, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text }) {
+async function criar({ accountId, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text, require_follow }) {
   if (!media_id || !Array.isArray(keywords) || keywords.length === 0 || !reply_text) {
     throw new Error("media_id, keywords[] (>=1) e reply_text sao obrigatorios");
   }
   const id = crypto.randomUUID();
   const { rows } = await pool.query(
-    `INSERT INTO rules (id, account_id, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [id, accountId, media_id, media_thumbnail || null, media_caption_snippet || null, media_permalink || null, keywords, reply_text, comment_reply_text || null]
+    `INSERT INTO rules (id, account_id, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text, require_follow)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [id, accountId, media_id, media_thumbnail || null, media_caption_snippet || null, media_permalink || null, keywords, reply_text, comment_reply_text || null, Boolean(require_follow)]
   );
   return rows[0];
 }
@@ -45,10 +45,11 @@ async function atualizar(accountId, id, patch) {
        keywords = COALESCE($3, keywords),
        reply_text = COALESCE($4, reply_text),
        comment_reply_text = $5,
+       require_follow = $6,
        updated_at = now()
      WHERE id = $1 AND account_id = $2
      RETURNING *`,
-    [id, accountId, patch.keywords || null, patch.reply_text || null, patch.comment_reply_text || null]
+    [id, accountId, patch.keywords || null, patch.reply_text || null, patch.comment_reply_text || null, Boolean(patch.require_follow)]
   );
   return rows[0] || null;
 }

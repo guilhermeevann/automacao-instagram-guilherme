@@ -5,6 +5,7 @@ const db = require("./db");
 const accountsStore = require("./accounts-store");
 const rulesStore = require("./rules-store");
 const historyStore = require("./history-store");
+const followGatesStore = require("./follow-gates-store");
 const { encontrarRegra } = require("./rules");
 const { buscarMediaRecente } = require("./media");
 const { basicAuth } = require("./auth");
@@ -134,6 +135,44 @@ async function main() {
     return { ok: resp.ok, data };
   }
 
+  async function verificarSeSegue(igsid) {
+    try {
+      const resp = await fetch(
+        `https://graph.instagram.com/v25.0/${igsid}?fields=is_user_follow_business&access_token=${encodeURIComponent(
+          currentAccessToken
+        )}`
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        console.error("Falha ao checar se segue", igsid, data);
+        return false; // na duvida, pede pra seguir -- mais seguro que liberar sem checar
+      }
+      return Boolean(data.is_user_follow_business);
+    } catch (err) {
+      console.error("Erro ao checar se segue", igsid, err);
+      return false;
+    }
+  }
+
+  async function enviarMensagemDireta(igsid, texto) {
+    const resp = await fetch(
+      `https://graph.instagram.com/v25.0/${IG_USER_ID}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+        body: JSON.stringify({
+          recipient: { id: igsid },
+          message: { text: texto },
+        }),
+      }
+    );
+    const data = await resp.json().catch(() => ({}));
+    return { ok: resp.ok, data };
+  }
+
   async function tratarComentario(value) {
     const commentId = value?.id;
     const texto = value?.text;
@@ -149,7 +188,28 @@ async function main() {
     if (!regra) return;
 
     seenCommentIds.add(commentId);
-    const resultado = await enviarPrivateReply(commentId, regra.reply_text);
+    const commenterId = value.from?.id || null;
+
+    let precisaSeguir = false;
+    if (regra.require_follow && commenterId) {
+      const segue = await verificarSeSegue(commenterId);
+      precisaSeguir = !segue;
+    }
+
+    const textoParaEnviar = precisaSeguir
+      ? 'Vi que voce ainda nao me segue -- segue ai e me manda um "oi" aqui que eu libero na hora.'
+      : regra.reply_text;
+
+    const resultado = await enviarPrivateReply(commentId, textoParaEnviar);
+
+    if (precisaSeguir && resultado.ok) {
+      await followGatesStore.upsert({
+        accountId: account.id,
+        igsid: commenterId,
+        ruleId: regra.id,
+        commentId,
+      });
+    }
 
     let resultadoPublico = null;
     if (regra.comment_reply_text) {
@@ -161,18 +221,18 @@ async function main() {
       comment_id: commentId,
       media_id: mediaId,
       regra_id: regra.id,
-      commenter_id: value.from?.id || null,
+      commenter_id: commenterId,
       commenter_username: value.from?.username || null,
       comment_text: texto,
-      reply_text: regra.reply_text,
-      status: resultado.ok ? "sent" : "failed",
+      reply_text: textoParaEnviar,
+      status: resultado.ok ? (precisaSeguir ? "aguardando_seguir" : "sent") : "failed",
       error: resultado.ok ? null : resultado.data,
       comment_reply_status: resultadoPublico ? (resultadoPublico.ok ? "sent" : "failed") : null,
       comment_reply_error: resultadoPublico && !resultadoPublico.ok ? resultadoPublico.data : null,
     });
 
     if (resultado.ok) {
-      console.log("Private reply enviada", commentId, resultado.data);
+      console.log(precisaSeguir ? "Pedido pra seguir enviado" : "Private reply enviada", commentId, resultado.data);
     } else {
       console.error("Falha ao enviar private reply", commentId, resultado.data);
     }
@@ -182,6 +242,55 @@ async function main() {
       } else {
         console.error("Falha ao enviar resposta publica", commentId, resultadoPublico.data);
       }
+    }
+  }
+
+  async function tratarMensagem(evento) {
+    const senderId = evento?.sender?.id;
+    const texto = evento?.message?.text;
+    if (!senderId || senderId === IG_USER_ID) return; // ignora eco/mensagem da propria conta
+    if (evento?.message?.is_echo) return;
+
+    const pendente = await followGatesStore.buscar(account.id, senderId);
+    if (!pendente) return; // mensagem sem gate pendente pra essa pessoa, nao e conosco
+
+    console.log(`Mensagem de quem estava aguardando seguir: igsid=${senderId} texto="${texto || ""}"`);
+
+    const segue = await verificarSeSegue(senderId);
+    if (!segue) {
+      await enviarMensagemDireta(
+        senderId,
+        "Ainda nao te vejo seguindo -- confere se salvou certinho e me chama de novo assim que seguir."
+      );
+      return;
+    }
+
+    const regras = await rulesStore.listar(account.id);
+    const regra = regras.find((r) => r.id === pendente.rule_id);
+    await followGatesStore.remover(account.id, senderId);
+    if (!regra) return;
+
+    const resultado = await enviarMensagemDireta(senderId, regra.reply_text);
+
+    await historyStore.registrar({
+      accountId: account.id,
+      comment_id: pendente.comment_id,
+      media_id: null,
+      regra_id: regra.id,
+      commenter_id: senderId,
+      commenter_username: null,
+      comment_text: texto || null,
+      reply_text: regra.reply_text,
+      status: resultado.ok ? "sent" : "failed",
+      error: resultado.ok ? null : resultado.data,
+      comment_reply_status: null,
+      comment_reply_error: null,
+    });
+
+    if (resultado.ok) {
+      console.log("Conteudo liberado apos confirmar follow", senderId, resultado.data);
+    } else {
+      console.error("Falha ao liberar conteudo apos follow", senderId, resultado.data);
     }
   }
 
@@ -208,6 +317,9 @@ async function main() {
         if (change.field === "comments") {
           tratarComentario(change.value);
         }
+      }
+      for (const evento of entry.messaging || []) {
+        tratarMensagem(evento);
       }
     }
   });

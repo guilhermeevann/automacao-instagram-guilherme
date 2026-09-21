@@ -150,6 +150,31 @@ button.perigo:hover { color: var(--danger); background: var(--danger-bg); }
 .regra-titulo { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
 .regra-legenda { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
 
+.badge-seguir {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warning);
+  background: var(--warning-bg);
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.campo .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
 .regra-keywords {
   display: flex;
   flex-wrap: wrap;
@@ -337,3 +362,4 @@ tr:last-child td { border-bottom: none; }
 th { color: var(--text-secondary); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
 .status-ok { color: var(--success); font-weight: 500; }
 .status-erro { color: var(--danger); font-weight: 500; }
+.status-pendente { color: var(--warning); font-weight: 500; }

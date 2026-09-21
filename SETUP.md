@@ -44,8 +44,10 @@ comentário → DM no Instagram. Três etapas — cada uma corresponde a um bloc
 4. **Publique o app na Meta** (status "Ativo", não "Em desenvolvimento"). Sem isso a
    Meta nunca entrega webhook, nem pra contas testadoras.
 5. De volta na Meta, em Instagram → Webhooks: **Callback URL** = `<sua-url>/webhook`,
-   **Verify Token** = o mesmo valor que você colocou em `VERIFY_TOKEN`. Assine o
-   campo `comments`.
+   **Verify Token** = o mesmo valor que você colocou em `VERIFY_TOKEN`. Assine os
+   campos `comments` e `messages` — o segundo só é usado se você ligar a opção
+   "Exigir seguir antes de entregar" em alguma regra (Etapa 3), mas não custa nada
+   assinar de uma vez.
 
 ## Etapa 3 — Criar sua primeira regra
 
