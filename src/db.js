@@ -63,6 +63,8 @@ async function init() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (account_id, igsid)
     );
+
+    ALTER TABLE rules ADD COLUMN IF NOT EXISTS follow_request_text TEXT;
   `);
 }
 

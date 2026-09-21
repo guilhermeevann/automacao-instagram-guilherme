@@ -148,23 +148,37 @@ async function main() {
     return { ok: resp.ok, data };
   }
 
-  async function verificarSeSegue(igsid) {
+  async function buscarStatusSeguidor(igsid) {
     try {
       const resp = await fetch(
-        `https://graph.instagram.com/v25.0/${igsid}?fields=is_user_follow_business&access_token=${encodeURIComponent(
+        `https://graph.instagram.com/v25.0/${igsid}?fields=is_user_follow_business,name&access_token=${encodeURIComponent(
           currentAccessToken
         )}`
       );
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         console.error("Falha ao checar se segue", igsid, data);
-        return false; // na duvida, pede pra seguir -- mais seguro que liberar sem checar
+        return { segue: false, nome: null }; // na duvida, pede pra seguir -- mais seguro que liberar sem checar
       }
-      return Boolean(data.is_user_follow_business);
+      return { segue: Boolean(data.is_user_follow_business), nome: data.name || null };
     } catch (err) {
       console.error("Erro ao checar se segue", igsid, err);
-      return false;
+      return { segue: false, nome: null };
     }
+  }
+
+  const TEXTO_PEDIR_SEGUIR_PADRAO =
+    'Fala {first_name}, vi que você comentou mas ainda não me segue. Aperta em me seguir e responde "segui" que envio para você.';
+
+  // a Meta nao faz substituicao de variavel na mensagem -- o {first_name} e
+  // preenchido aqui, com o nome que a gente busca via API. Sem nome, remove
+  // o trecho do placeholder pra nao mandar "Fala , vi que...".
+  function personalizarTexto(template, nomeCompleto) {
+    const primeiroNome = (nomeCompleto || "").trim().split(/\s+/)[0] || "";
+    if (primeiroNome) {
+      return template.replace(/\{first_name\}/g, primeiroNome);
+    }
+    return template.replace(/\s*\{first_name\},?/g, "").replace(/\s{2,}/g, " ").trim();
   }
 
   async function enviarMensagemDireta(igsid, texto) {
@@ -205,14 +219,15 @@ async function main() {
     const commenterId = value.from?.id || null;
 
     let precisaSeguir = false;
+    let textoParaEnviar = regra.reply_text;
     if (regra.require_follow && commenterId) {
-      const segue = await verificarSeSegue(commenterId);
+      const { segue, nome } = await buscarStatusSeguidor(commenterId);
       precisaSeguir = !segue;
+      if (precisaSeguir) {
+        const template = regra.follow_request_text || TEXTO_PEDIR_SEGUIR_PADRAO;
+        textoParaEnviar = personalizarTexto(template, nome);
+      }
     }
-
-    const textoParaEnviar = precisaSeguir
-      ? 'Vi que voce ainda nao me segue -- segue ai e me manda um "oi" aqui que eu libero na hora.'
-      : regra.reply_text;
 
     const resultado = await enviarPrivateReply(commentId, textoParaEnviar);
 
@@ -280,11 +295,14 @@ async function main() {
 
     console.log(`Mensagem de quem estava aguardando seguir: igsid=${senderId} texto="${texto || ""}"`);
 
-    const segue = await verificarSeSegue(senderId);
+    const { segue, nome } = await buscarStatusSeguidor(senderId);
     if (!segue) {
       await enviarMensagemDireta(
         senderId,
-        "Ainda nao te vejo seguindo -- confere se salvou certinho e me chama de novo assim que seguir."
+        personalizarTexto(
+          "{first_name}, ainda não te vejo seguindo -- confere se salvou certinho e me chama de novo assim que seguir.",
+          nome
+        )
       );
       return;
     }

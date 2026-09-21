@@ -103,6 +103,12 @@
         <p class="campo-ajuda">Se marcado, antes da mensagem de DM eu confiro se a pessoa já segue a conta. Se não seguir, peço pra seguir e só libero a mensagem quando ela responder confirmando.</p>
       </div>
 
+      <div class="campo" id="campo-follow-request" hidden>
+        <label for="input-follow-request">Mensagem pedindo pra seguir</label>
+        <textarea id="input-follow-request" rows="3" placeholder='Fala {first_name}, vi que você comentou mas ainda não me segue. Aperta em me seguir e responde "segui" que envio para você.'></textarea>
+        <p class="campo-ajuda">Use <code>{first_name}</code> que eu troco pelo primeiro nome da pessoa. Deixa em branco pra usar o texto padrão (o do placeholder acima).</p>
+      </div>
+
       <div class="modal-acoes">
         <button id="btn-cancelar" class="secundario">Cancelar</button>
         <button id="btn-salvar">Salvar</button>

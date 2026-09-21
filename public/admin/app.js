@@ -204,6 +204,8 @@ async function apagarRegra(id) {
 const overlay = document.getElementById("modal-overlay");
 const campoPosts = document.getElementById("campo-posts");
 const gridPosts = document.getElementById("grid-posts");
+const campoFollowRequest = document.getElementById("campo-follow-request");
+const inputRequireFollow = document.getElementById("input-require-follow");
 
 document.getElementById("btn-nova-regra").addEventListener("click", () => abrirModalCriacao());
 document.getElementById("btn-cancelar").addEventListener("click", fecharModal);
@@ -213,6 +215,9 @@ document.querySelectorAll('input[name="escopo"]').forEach((r) =>
     if (e.target.value === "post" && gridPosts.dataset.carregado !== "1") carregarPosts();
   })
 );
+inputRequireFollow.addEventListener("change", () => {
+  campoFollowRequest.hidden = !inputRequireFollow.checked;
+});
 
 function fecharModal() {
   overlay.hidden = true;
@@ -231,7 +236,9 @@ function abrirModalCriacao() {
   tagsKeywords.set([]);
   document.getElementById("input-reply").value = "";
   document.getElementById("input-comment-reply").value = "";
-  document.getElementById("input-require-follow").checked = false;
+  inputRequireFollow.checked = false;
+  document.getElementById("input-follow-request").value = "";
+  campoFollowRequest.hidden = true;
   overlay.hidden = false;
 }
 
@@ -244,7 +251,9 @@ function abrirModalEdicao(regra) {
   tagsKeywords.set(regra.keywords);
   document.getElementById("input-reply").value = regra.reply_text;
   document.getElementById("input-comment-reply").value = regra.comment_reply_text || "";
-  document.getElementById("input-require-follow").checked = Boolean(regra.require_follow);
+  inputRequireFollow.checked = Boolean(regra.require_follow);
+  document.getElementById("input-follow-request").value = regra.follow_request_text || "";
+  campoFollowRequest.hidden = !regra.require_follow;
   overlay.hidden = false;
 }
 
@@ -283,7 +292,8 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
   const keywords = tagsKeywords.get();
   const reply_text = document.getElementById("input-reply").value.trim();
   const comment_reply_text = document.getElementById("input-comment-reply").value.trim();
-  const require_follow = document.getElementById("input-require-follow").checked;
+  const require_follow = inputRequireFollow.checked;
+  const follow_request_text = document.getElementById("input-follow-request").value.trim();
 
   if (keywords.length === 0 || !reply_text) {
     erroEl.textContent = "Preenche pelo menos uma palavra-chave e a mensagem.";
@@ -293,7 +303,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
 
   try {
     if (editandoId) {
-      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text, require_follow });
+      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text, require_follow, follow_request_text });
     } else {
       const escopo = document.querySelector('input[name="escopo"]:checked').value;
       if (escopo === "post" && !postSelecionado) {
@@ -302,7 +312,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
         return;
       }
       const body = escopo === "all"
-        ? { media_id: "all", keywords, reply_text, comment_reply_text, require_follow }
+        ? { media_id: "all", keywords, reply_text, comment_reply_text, require_follow, follow_request_text }
         : {
             media_id: postSelecionado.id,
             media_thumbnail: postSelecionado.thumbnail,
@@ -312,6 +322,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
             reply_text,
             comment_reply_text,
             require_follow,
+            follow_request_text,
           };
       await api.send("POST", "/api/rules", body);
     }
