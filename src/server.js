@@ -88,6 +88,17 @@ async function main() {
   );
 
   const seenCommentIds = new Set();
+  const seenMessageIds = new Set();
+
+  function esperar(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // pausa de 2-5s antes de cada envio, pra nao parecer um robo respondendo
+  // instantaneamente.
+  function delayHumano() {
+    return esperar(2000 + Math.random() * 3000);
+  }
 
   function assinaturaValida(req) {
     const assinatura = req.get("X-Hub-Signature-256");
@@ -101,6 +112,7 @@ async function main() {
   }
 
   async function enviarPrivateReply(commentId, replyText) {
+    await delayHumano();
     const resp = await fetch(
       `https://graph.instagram.com/v25.0/${IG_USER_ID}/messages`,
       {
@@ -120,6 +132,7 @@ async function main() {
   }
 
   async function enviarRespostaPublica(commentId, texto) {
+    await delayHumano();
     const resp = await fetch(
       `https://graph.instagram.com/v25.0/${commentId}/replies`,
       {
@@ -155,6 +168,7 @@ async function main() {
   }
 
   async function enviarMensagemDireta(igsid, texto) {
+    await delayHumano();
     const resp = await fetch(
       `https://graph.instagram.com/v25.0/${IG_USER_ID}/messages`,
       {
@@ -247,9 +261,19 @@ async function main() {
 
   async function tratarMensagem(evento) {
     const senderId = evento?.sender?.id;
-    const texto = evento?.message?.text;
+    const mensagem = evento?.message;
+    const mensagemId = mensagem?.mid;
+    const texto = mensagem?.text;
     if (!senderId || senderId === IG_USER_ID) return; // ignora eco/mensagem da propria conta
-    if (evento?.message?.is_echo) return;
+    // so processa mensagem de texto de verdade -- o webhook manda tambem
+    // "visto", reacao, edicao etc no mesmo campo "messaging", sem "message"
+    // (ou sem texto), e cada um contava como se a pessoa tivesse mandado uma
+    // mensagem nova, disparando o lembrete repetidas vezes.
+    if (!mensagem || mensagem.is_echo || !texto) return;
+    if (mensagemId) {
+      if (seenMessageIds.has(mensagemId)) return; // dedupe: reentrega do webhook
+      seenMessageIds.add(mensagemId);
+    }
 
     const pendente = await followGatesStore.buscar(account.id, senderId);
     if (!pendente) return; // mensagem sem gate pendente pra essa pessoa, nao e conosco
