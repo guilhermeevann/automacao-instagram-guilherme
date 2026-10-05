@@ -354,6 +354,12 @@ async function main() {
     // responde rapido, processa depois
     res.sendStatus(200);
 
+    // diagnostico: com DEBUG_WEBHOOK_RAW=1 grava o JSON bruto de todo evento no log, pra ver
+    // quais campos a Meta realmente manda (ex.: se a etiqueta de conversa vem no evento)
+    if (process.env.DEBUG_WEBHOOK_RAW === "1") {
+      console.log("[webhook-raw]", JSON.stringify(req.body));
+    }
+
     for (const entry of req.body.entry || []) {
       for (const change of entry.changes || []) {
         if (change.field === "comments") {
