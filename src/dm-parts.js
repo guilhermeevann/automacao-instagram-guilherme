@@ -11,7 +11,7 @@ function bytes(texto) {
 }
 
 function cabeEmUmaMensagem(texto) {
-  return bytes(texto) <= LIMITE_MENSAGEM_BYTES;
+  return bytes(texto) <= LIMITE_MENSAGEM_BYTES && !/^[ \t]*<<<PARTE>>>[ \t]*$/m.test(texto);
 }
 
 // corta por caractere sem partir um caractere multibyte (acento, emoji)
@@ -67,8 +67,27 @@ function terminaEmTitulo(paragrafo) {
   return ultimaLinha.length <= 80 && ultimaLinha.endsWith(":");
 }
 
+// Linha sozinha com este marcador separa mensagens: quem escreveu a DM ja decidiu
+// onde cada uma comeca (ex.: cada pacote de codigos com o proprio cabecalho).
+const MARCADOR_PARTE = /^[ \t]*<<<PARTE>>>[ \t]*$/m;
+
+function temMarcador(texto) {
+  return MARCADOR_PARTE.test(texto);
+}
+
 function dividirEmPartes(texto, limite = LIMITE_PARTE_BYTES) {
   const limpo = texto.replace(/\r\n/g, "\n").trim();
+
+  if (temMarcador(limpo)) {
+    // cada trecho marcado sai como esta, ate o limite da Meta; so um trecho
+    // que passe de 1000 bytes e dividido pelo corte automatico
+    return limpo
+      .split(new RegExp(MARCADOR_PARTE.source, "mg"))
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .flatMap((p) => (cabeEmUmaMensagem(p) ? [p] : dividirEmPartes(p, limite)));
+  }
+
   if (bytes(limpo) <= LIMITE_MENSAGEM_BYTES) return [limpo];
 
   // paragrafo (linha em branco) > linha > frase > palavra

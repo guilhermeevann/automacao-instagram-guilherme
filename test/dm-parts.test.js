@@ -63,3 +63,23 @@ test("preserva as quebras de linha dentro de uma parte", () => {
   const partes = checarPartes(texto);
   assert.ok(partes.some((p) => p.includes("\n")));
 });
+
+test("marcador <<<PARTE>>> separa mensagens exatamente onde o autor decidiu", () => {
+  const a = "Abertura curta.";
+  const b = "Pacote 1\n\n/um: faz um.\n/dois: faz dois.";
+  const c = "Pacote 2\n\n/tres: faz tres.";
+  const texto = [a, b, c].join("\n\n<<<PARTE>>>\n\n");
+  assert.deepStrictEqual(dividirEmPartes(texto), [a, b, c]);
+  // mesmo somando menos de 1000 bytes, com marcador nao e "uma mensagem so"
+  assert.ok(bytes(texto) < LIMITE_MENSAGEM_BYTES);
+  assert.ok(!cabeEmUmaMensagem(texto));
+});
+
+test("trecho marcado de ate 1000 bytes sai inteiro; acima disso e dividido", () => {
+  const quase = "a".repeat(960);
+  const grande = "palavra ".repeat(200).trim(); // ~1600 bytes
+  const partes = dividirEmPartes([quase, grande].join("\n<<<PARTE>>>\n"));
+  assert.strictEqual(partes[0], quase);
+  assert.ok(partes.length >= 3);
+  for (const p of partes) assert.ok(bytes(p) <= LIMITE_MENSAGEM_BYTES);
+});
