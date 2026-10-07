@@ -65,6 +65,7 @@ async function init() {
     );
 
     ALTER TABLE rules ADD COLUMN IF NOT EXISTS follow_request_text TEXT;
+    ALTER TABLE rules ADD COLUMN IF NOT EXISTS dm_abertura TEXT;
   `);
 }
 

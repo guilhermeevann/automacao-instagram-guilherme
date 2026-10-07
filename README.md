@@ -27,6 +27,25 @@ gerenciado por um painel web simples em vez de editar arquivo.
 7. Registra cada tentativa (DM e resposta publica, sucesso ou falha) no historico,
    visivel no painel.
 
+## DM longa (mais de 1000 bytes)
+
+A Meta aceita no máximo **1000 bytes por mensagem** (UTF-8), e a private reply (a DM que sai
+do comentário) é **uma só**, só texto. Quando o `reply_text` da regra passa de 1000 bytes:
+
+1. O comentário recebe uma **abertura curta** (campo `dm_abertura`; sem ele, um texto padrão
+   com `{first_name}`) pedindo que a pessoa responda.
+2. A pessoa responde qualquer coisa, o que abre a janela de 24 h.
+3. O servidor manda o conteúdo em **partes de até 900 bytes**, em ordem, com a pausa humana de
+   2 a 5 s entre elas. Se uma parte falhar, para ali e registra qual foi no histórico.
+
+A divisão é feita em `src/dm-parts.js` e corta no limite mais natural: parágrafo, depois linha,
+frase, palavra e, só em último caso, caractere (sem partir acento nem emoji). Título terminado
+em dois pontos não fica sozinho no fim de uma parte. `npm test` roda os testes da divisão. No
+painel, o campo da DM mostra os bytes e em quantas partes vai sair.
+
+Duas respostas quase juntas da mesma pessoa não duplicam a entrega: o estado pendente é apagado
+e devolvido numa operação só (`follow-gates-store.reivindicar`).
+
 ## Painel de administracao (`/admin`)
 
 Pagina unica (HTML+JS, sem build step) protegida por **HTTP Basic Auth**

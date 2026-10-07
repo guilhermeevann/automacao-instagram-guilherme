@@ -5,7 +5,8 @@
   "description": "Webhook receiver para comentario->DM do Instagram (AGENTE VERTICAL) via Meta Graph API",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --test test/dm-parts.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

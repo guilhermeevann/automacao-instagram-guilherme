@@ -20,8 +20,18 @@ async function buscar(accountId, igsid) {
   return rows[0] || null;
 }
 
+// apaga e devolve a linha numa operacao so: de duas respostas simultaneas da
+// mesma pessoa, apenas uma recebe a linha (a outra recebe null)
+async function reivindicar(accountId, igsid) {
+  const { rows } = await pool.query(
+    "DELETE FROM follow_gates WHERE account_id = $1 AND igsid = $2 RETURNING *",
+    [accountId, igsid]
+  );
+  return rows[0] || null;
+}
+
 async function remover(accountId, igsid) {
   await pool.query("DELETE FROM follow_gates WHERE account_id = $1 AND igsid = $2", [accountId, igsid]);
 }
 
-module.exports = { upsert, buscar, remover };
+module.exports = { upsert, buscar, reivindicar, remover };

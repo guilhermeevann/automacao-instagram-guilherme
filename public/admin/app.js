@@ -172,6 +172,8 @@ function renderRegraCard(regra) {
   const respostaPublica = regra.comment_reply_text
     ? `<div class="regra-reply regra-reply-publica">💬 ${escapeHtml(regra.comment_reply_text)}</div>`
     : "";
+  const emPartes = new TextEncoder().encode(regra.reply_text).length > 1000;
+  const badgePartes = emPartes ? `<span class="badge-seguir badge-partes">✂️ em partes</span>` : "";
   const badgeSeguir = regra.require_follow
     ? `<span class="badge-seguir">🔒 exige seguir</span>`
     : "";
@@ -180,7 +182,7 @@ function renderRegraCard(regra) {
     <div class="regra-card">
       ${thumb}
       <div class="regra-corpo">
-        <div class="regra-titulo">${titulo} ${badgeSeguir}</div>
+        <div class="regra-titulo">${titulo} ${badgeSeguir} ${badgePartes}</div>
         ${legenda ? `<div class="regra-legenda">${legenda}</div>` : ""}
         <div class="regra-keywords">${keywords}</div>
         <div class="regra-reply">${escapeHtml(regra.reply_text)}</div>
@@ -206,6 +208,37 @@ const campoPosts = document.getElementById("campo-posts");
 const gridPosts = document.getElementById("grid-posts");
 const campoFollowRequest = document.getElementById("campo-follow-request");
 const inputRequireFollow = document.getElementById("input-require-follow");
+const inputReply = document.getElementById("input-reply");
+const campoDmAbertura = document.getElementById("campo-dm-abertura");
+const replyContador = document.getElementById("reply-contador");
+
+// Mostra quantos bytes tem a DM e, se passar de 1000 (limite da Meta por
+// mensagem), em quantas partes o servidor vai dividir. Pergunta ao servidor
+// pra usar a mesma divisao do envio de verdade, sem duplicar a logica aqui.
+let contadorTimer = null;
+function atualizarContador() {
+  clearTimeout(contadorTimer);
+  contadorTimer = setTimeout(async () => {
+    const texto = inputReply.value;
+    if (!texto.trim()) {
+      replyContador.textContent = "";
+      campoDmAbertura.hidden = true;
+      return;
+    }
+    try {
+      const r = await api.send("POST", "/api/dm-partes", { texto });
+      if (r.cabe) {
+        replyContador.textContent = r.bytes + " de 1000 bytes. Vai numa mensagem só.";
+      } else {
+        replyContador.textContent = r.bytes + " bytes, passa de 1000. Vai em " + r.partes.length + " partes (" + r.partes.join(", ") + " bytes), enviadas depois que a pessoa responder.";
+      }
+      campoDmAbertura.hidden = r.cabe;
+    } catch {
+      replyContador.textContent = "";
+    }
+  }, 350);
+}
+inputReply.addEventListener("input", atualizarContador);
 
 document.getElementById("btn-nova-regra").addEventListener("click", () => abrirModalCriacao());
 document.getElementById("btn-cancelar").addEventListener("click", fecharModal);
@@ -234,7 +267,9 @@ function abrirModalCriacao() {
   document.querySelector('input[name="escopo"][value="all"]').checked = true;
   campoPosts.hidden = true;
   tagsKeywords.set([]);
-  document.getElementById("input-reply").value = "";
+  inputReply.value = "";
+  document.getElementById("input-dm-abertura").value = "";
+  atualizarContador();
   document.getElementById("input-comment-reply").value = "";
   inputRequireFollow.checked = false;
   document.getElementById("input-follow-request").value = "";
@@ -249,7 +284,9 @@ function abrirModalEdicao(regra) {
   document.getElementById("campo-escopo").hidden = true; // nao muda o post depois de criada
   campoPosts.hidden = true;
   tagsKeywords.set(regra.keywords);
-  document.getElementById("input-reply").value = regra.reply_text;
+  inputReply.value = regra.reply_text;
+  document.getElementById("input-dm-abertura").value = regra.dm_abertura || "";
+  atualizarContador();
   document.getElementById("input-comment-reply").value = regra.comment_reply_text || "";
   inputRequireFollow.checked = Boolean(regra.require_follow);
   document.getElementById("input-follow-request").value = regra.follow_request_text || "";
@@ -290,7 +327,8 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
   erroEl.hidden = true;
 
   const keywords = tagsKeywords.get();
-  const reply_text = document.getElementById("input-reply").value.trim();
+  const reply_text = inputReply.value.trim();
+  const dm_abertura = document.getElementById("input-dm-abertura").value.trim();
   const comment_reply_text = document.getElementById("input-comment-reply").value.trim();
   const require_follow = inputRequireFollow.checked;
   const follow_request_text = document.getElementById("input-follow-request").value.trim();
@@ -303,7 +341,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
 
   try {
     if (editandoId) {
-      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text, require_follow, follow_request_text });
+      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura });
     } else {
       const escopo = document.querySelector('input[name="escopo"]:checked').value;
       if (escopo === "post" && !postSelecionado) {
@@ -312,7 +350,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
         return;
       }
       const body = escopo === "all"
-        ? { media_id: "all", keywords, reply_text, comment_reply_text, require_follow, follow_request_text }
+        ? { media_id: "all", keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura }
         : {
             media_id: postSelecionado.id,
             media_thumbnail: postSelecionado.thumbnail,
@@ -323,6 +361,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
             comment_reply_text,
             require_follow,
             follow_request_text,
+            dm_abertura,
           };
       await api.send("POST", "/api/rules", body);
     }
@@ -352,8 +391,8 @@ async function carregarHistorico() {
               <td>${new Date(h.timestamp).toLocaleString("pt-BR")}</td>
               <td>${escapeHtml(h.commenter_username || h.commenter_id || "?")}</td>
               <td>${escapeHtml(h.comment_text || "")}</td>
-              <td class="${h.status === "sent" ? "status-ok" : h.status === "aguardando_seguir" ? "status-pendente" : "status-erro"}">${
-                h.status === "sent" ? "Enviado" : h.status === "aguardando_seguir" ? "Aguardando seguir" : "Falhou"
+              <td class="${h.status === "sent" ? "status-ok" : h.status === "aguardando_seguir" || h.status === "aguardando_resposta" ? "status-pendente" : "status-erro"}">${
+                h.status === "sent" ? "Enviado" : h.status === "aguardando_seguir" ? "Aguardando seguir" : h.status === "aguardando_resposta" ? "Aguardando resposta" : "Falhou"
               }</td>
               <td class="${h.comment_reply_status === "sent" ? "status-ok" : h.comment_reply_status === "failed" ? "status-erro" : ""}">${
                 h.comment_reply_status === "sent" ? "Enviada" : h.comment_reply_status === "failed" ? "Falhou" : "—"

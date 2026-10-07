@@ -87,6 +87,13 @@
       <div class="campo">
         <label for="input-reply">Mensagem enviada por DM</label>
         <textarea id="input-reply" rows="4" placeholder="Oi! Recebi seu comentário..."></textarea>
+        <p class="campo-ajuda" id="reply-contador"></p>
+      </div>
+
+      <div class="campo" id="campo-dm-abertura" hidden>
+        <label for="input-dm-abertura">Mensagem de abertura</label>
+        <textarea id="input-dm-abertura" rows="3" placeholder='Fala {first_name}! Separei o conteúdo pra você. Me responde "quero" que eu te mando agora.'></textarea>
+        <p class="campo-ajuda">A DM acima passa de 1000 bytes, então vai em partes. Esta é a primeira mensagem, enviada na hora no comentário; o resto sai quando a pessoa responder. Use <code>{first_name}</code> pro primeiro nome. Em branco usa o texto padrão (o do placeholder).</p>
       </div>
 
       <div class="campo">

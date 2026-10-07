@@ -6,6 +6,7 @@ const accountsStore = require("./accounts-store");
 const rulesStore = require("./rules-store");
 const historyStore = require("./history-store");
 const followGatesStore = require("./follow-gates-store");
+const { dividirEmPartes, cabeEmUmaMensagem } = require("./dm-parts");
 const { encontrarRegra } = require("./rules");
 const { buscarMediaRecente } = require("./media");
 const { basicAuth } = require("./auth");
@@ -37,6 +38,8 @@ for (const [name, value] of Object.entries({
 }
 
 const UM_DIA_MS = 24 * 60 * 60 * 1000;
+// so muda em teste local, apontando pra um servidor falso
+const GRAPH_BASE = process.env.GRAPH_BASE || "https://graph.instagram.com";
 
 async function main() {
   await db.init();
@@ -114,7 +117,7 @@ async function main() {
   async function enviarPrivateReply(commentId, replyText) {
     await delayHumano();
     const resp = await fetch(
-      `https://graph.instagram.com/v25.0/${IG_USER_ID}/messages`,
+      `${GRAPH_BASE}/v25.0/${IG_USER_ID}/messages`,
       {
         method: "POST",
         headers: {
@@ -134,7 +137,7 @@ async function main() {
   async function enviarRespostaPublica(commentId, texto) {
     await delayHumano();
     const resp = await fetch(
-      `https://graph.instagram.com/v25.0/${commentId}/replies`,
+      `${GRAPH_BASE}/v25.0/${commentId}/replies`,
       {
         method: "POST",
         headers: {
@@ -151,7 +154,7 @@ async function main() {
   async function buscarStatusSeguidor(igsid) {
     try {
       const resp = await fetch(
-        `https://graph.instagram.com/v25.0/${igsid}?fields=is_user_follow_business,name&access_token=${encodeURIComponent(
+        `${GRAPH_BASE}/v25.0/${igsid}?fields=is_user_follow_business,name&access_token=${encodeURIComponent(
           currentAccessToken
         )}`
       );
@@ -184,7 +187,7 @@ async function main() {
   async function enviarMensagemDireta(igsid, texto) {
     await delayHumano();
     const resp = await fetch(
-      `https://graph.instagram.com/v25.0/${IG_USER_ID}/messages`,
+      `${GRAPH_BASE}/v25.0/${IG_USER_ID}/messages`,
       {
         method: "POST",
         headers: {
@@ -199,6 +202,21 @@ async function main() {
     );
     const data = await resp.json().catch(() => ({}));
     return { ok: resp.ok, data };
+  }
+
+  const TEXTO_ABERTURA_PADRAO =
+    'Fala {first_name}! Separei o conteúdo pra você. Me responde "quero" que eu te mando agora.';
+
+  // Manda o texto em quantas mensagens precisar (1 se couber), em ordem, uma
+  // depois da outra; cada envio ja espera o delay humano. Se uma parte falhar,
+  // para ali e diz qual foi, pra nao mandar o resto fora de ordem.
+  async function entregarConteudo(igsid, texto) {
+    const partes = dividirEmPartes(texto);
+    for (let i = 0; i < partes.length; i++) {
+      const r = await enviarMensagemDireta(igsid, partes[i]);
+      if (!r.ok) return { ok: false, data: r.data, parte: i + 1, total: partes.length };
+    }
+    return { ok: true, total: partes.length };
   }
 
   async function tratarComentario(value) {
@@ -218,20 +236,32 @@ async function main() {
     seenCommentIds.add(commentId);
     const commenterId = value.from?.id || null;
 
+    // A private reply aceita uma mensagem so, de ate 1000 bytes. DM maior que
+    // isso abre com uma mensagem curta e so entrega o resto, em partes, quando
+    // a pessoa responder (a resposta dela abre a janela de 24h pra mandar mais).
+    const conteudoLongo = !cabeEmUmaMensagem(regra.reply_text);
+
     let precisaSeguir = false;
+    let aguardaResposta = false;
     let textoParaEnviar = regra.reply_text;
-    if (regra.require_follow && commenterId) {
-      const { segue, nome } = await buscarStatusSeguidor(commenterId);
-      precisaSeguir = !segue;
-      if (precisaSeguir) {
-        const template = regra.follow_request_text || TEXTO_PEDIR_SEGUIR_PADRAO;
-        textoParaEnviar = personalizarTexto(template, nome);
-      }
+    let nome = null;
+
+    if (commenterId && (regra.require_follow || conteudoLongo)) {
+      const status = await buscarStatusSeguidor(commenterId);
+      nome = status.nome;
+      precisaSeguir = Boolean(regra.require_follow) && !status.segue;
+    }
+
+    if (precisaSeguir) {
+      textoParaEnviar = personalizarTexto(regra.follow_request_text || TEXTO_PEDIR_SEGUIR_PADRAO, nome);
+    } else if (conteudoLongo) {
+      aguardaResposta = true;
+      textoParaEnviar = personalizarTexto(regra.dm_abertura || TEXTO_ABERTURA_PADRAO, nome);
     }
 
     const resultado = await enviarPrivateReply(commentId, textoParaEnviar);
 
-    if (precisaSeguir && resultado.ok) {
+    if ((precisaSeguir || aguardaResposta) && resultado.ok) {
       await followGatesStore.upsert({
         accountId: account.id,
         igsid: commenterId,
@@ -254,14 +284,28 @@ async function main() {
       commenter_username: value.from?.username || null,
       comment_text: texto,
       reply_text: textoParaEnviar,
-      status: resultado.ok ? (precisaSeguir ? "aguardando_seguir" : "sent") : "failed",
+      status: resultado.ok
+        ? precisaSeguir
+          ? "aguardando_seguir"
+          : aguardaResposta
+            ? "aguardando_resposta"
+            : "sent"
+        : "failed",
       error: resultado.ok ? null : resultado.data,
       comment_reply_status: resultadoPublico ? (resultadoPublico.ok ? "sent" : "failed") : null,
       comment_reply_error: resultadoPublico && !resultadoPublico.ok ? resultadoPublico.data : null,
     });
 
     if (resultado.ok) {
-      console.log(precisaSeguir ? "Pedido pra seguir enviado" : "Private reply enviada", commentId, resultado.data);
+      console.log(
+        precisaSeguir
+          ? "Pedido pra seguir enviado"
+          : aguardaResposta
+            ? "Abertura da DM longa enviada, aguardando resposta"
+            : "Private reply enviada",
+        commentId,
+        resultado.data
+      );
     } else {
       console.error("Falha ao enviar private reply", commentId, resultado.data);
     }
@@ -293,26 +337,37 @@ async function main() {
     const pendente = await followGatesStore.buscar(account.id, senderId);
     if (!pendente) return; // mensagem sem gate pendente pra essa pessoa, nao e conosco
 
-    console.log(`Mensagem de quem estava aguardando seguir: igsid=${senderId} texto="${texto || ""}"`);
-
-    const { segue, nome } = await buscarStatusSeguidor(senderId);
-    if (!segue) {
-      await enviarMensagemDireta(
-        senderId,
-        personalizarTexto(
-          "{first_name}, ainda não te vejo seguindo -- confere se salvou certinho e me chama de novo assim que seguir.",
-          nome
-        )
-      );
-      return;
-    }
+    console.log(`Mensagem de quem estava aguardando: igsid=${senderId} texto="${texto || ""}"`);
 
     const regras = await rulesStore.listar(account.id);
     const regra = regras.find((r) => r.id === pendente.rule_id);
-    await followGatesStore.remover(account.id, senderId);
-    if (!regra) return;
+    if (!regra) {
+      await followGatesStore.remover(account.id, senderId); // regra apagada, nada a entregar
+      return;
+    }
 
-    const resultado = await enviarMensagemDireta(senderId, regra.reply_text);
+    // so confere o follow quando a regra exige; DM longa sem "exigir seguir"
+    // so estava esperando a pessoa responder
+    if (regra.require_follow) {
+      const { segue, nome } = await buscarStatusSeguidor(senderId);
+      if (!segue) {
+        await enviarMensagemDireta(
+          senderId,
+          personalizarTexto(
+            "{first_name}, ainda não te vejo seguindo -- confere se salvou certinho e me chama de novo assim que seguir.",
+            nome
+          )
+        );
+        return;
+      }
+    }
+
+    // "reivindicar" apaga o gate e devolve a linha; se duas respostas chegarem
+    // juntas, so uma entrega (a outra recebe null e sai), evitando conteudo em dobro
+    const reivindicado = await followGatesStore.reivindicar(account.id, senderId);
+    if (!reivindicado) return;
+
+    const resultado = await entregarConteudo(senderId, regra.reply_text);
 
     await historyStore.registrar({
       accountId: account.id,
@@ -324,15 +379,15 @@ async function main() {
       comment_text: texto || null,
       reply_text: regra.reply_text,
       status: resultado.ok ? "sent" : "failed",
-      error: resultado.ok ? null : resultado.data,
+      error: resultado.ok ? null : { parte: resultado.parte, de: resultado.total, ...resultado.data },
       comment_reply_status: null,
       comment_reply_error: null,
     });
 
     if (resultado.ok) {
-      console.log("Conteudo liberado apos confirmar follow", senderId, resultado.data);
+      console.log(`Conteudo liberado em ${resultado.total} mensagem(ns)`, senderId);
     } else {
-      console.error("Falha ao liberar conteudo apos follow", senderId, resultado.data);
+      console.error(`Falha ao liberar conteudo na parte ${resultado.parte}/${resultado.total}`, senderId, resultado.data);
     }
   }
 
@@ -394,15 +449,30 @@ async function main() {
   });
 
   app.put("/api/rules/:id", async (req, res) => {
-    const atualizada = await rulesStore.atualizar(account.id, req.params.id, req.body);
-    if (!atualizada) return res.sendStatus(404);
-    res.json(atualizada);
+    try {
+      const atualizada = await rulesStore.atualizar(account.id, req.params.id, req.body);
+      if (!atualizada) return res.sendStatus(404);
+      res.json(atualizada);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   app.delete("/api/rules/:id", async (req, res) => {
     const removida = await rulesStore.remover(account.id, req.params.id);
     if (!removida) return res.sendStatus(404);
     res.sendStatus(204);
+  });
+
+  // pre-visualizacao pro painel: usa a mesma divisao que o envio de verdade
+  app.post("/api/dm-partes", (req, res) => {
+    const texto = String(req.body?.texto || "");
+    const partes = texto.trim() ? dividirEmPartes(texto) : [];
+    res.json({
+      bytes: Buffer.byteLength(texto, "utf8"),
+      cabe: cabeEmUmaMensagem(texto),
+      partes: partes.map((p) => Buffer.byteLength(p, "utf8")),
+    });
   });
 
   app.get("/api/media", async (_req, res) => {
