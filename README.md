@@ -46,6 +46,24 @@ painel, o campo da DM mostra os bytes e em quantas partes vai sair.
 Duas respostas quase juntas da mesma pessoa não duplicam a entrega: o estado pendente é apagado
 e devolvido numa operação só (`follow-gates-store.reivindicar`).
 
+## Quando o dono da conta assume a conversa
+
+Se voce escrever na mao para alguem que esta na espera (pediu a palavra-chave e ainda nao
+recebeu o conteudo), a automacao sai da conversa e **nao entrega mais nada** para essa pessoa.
+Dois jeitos de perceber, um cobre o outro:
+
+1. **Eco do webhook:** toda mensagem que sai da conta chega como evento com `sender` igual a
+   conta. O sistema grava o id de tudo que ele mesmo manda (tabela `sent_messages`); se o id do
+   eco nao esta la, foi voce digitando. O gate da pessoa e apagado na hora e uma entrega em
+   andamento para na proxima parte.
+2. **Conversa na Meta:** quando a pessoa responde, antes de entregar o sistema le a conversa
+   (`GET /<IG_USER_ID>/conversations`, so `id`, `from` e `created_time`). Mensagem da conta
+   depois que a pessoa entrou na espera, e que nao e do sistema, cancela a entrega.
+
+O historico mostra "Voce assumiu". A pessoa so volta a receber automacao se comentar de novo.
+Mensagens de **outras** automacoes na mesma conta (Business Suite, ManyChat) tambem contam como
+"nao foi o sistema", entao palavra de video nao deve estar em dois sistemas.
+
 ## Painel de administracao (`/admin`)
 
 Pagina unica (HTML+JS, sem build step) protegida por **HTTP Basic Auth**

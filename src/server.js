@@ -6,6 +6,7 @@ const accountsStore = require("./accounts-store");
 const rulesStore = require("./rules-store");
 const historyStore = require("./history-store");
 const followGatesStore = require("./follow-gates-store");
+const sentMessagesStore = require("./sent-messages-store");
 const { dividirEmPartes, cabeEmUmaMensagem } = require("./dm-parts");
 const { encontrarRegra } = require("./rules");
 const { buscarMediaRecente } = require("./media");
@@ -45,6 +46,7 @@ async function main() {
   await db.init();
   const account = await accountsStore.ensureAccount(IG_USER_ID, IG_ACCESS_TOKEN);
   await rulesStore.semearSeVazio(account.id);
+  sentMessagesStore.limparAntigas().catch((err) => console.error("Falha ao limpar ids antigos", err));
 
   let currentAccessToken = account.access_token;
   let tokenUpdatedAt = new Date(account.token_updated_at).getTime();
@@ -131,6 +133,7 @@ async function main() {
       }
     );
     const data = await resp.json().catch(() => ({}));
+    if (resp.ok) await registrarEnviada(data);
     return { ok: resp.ok, data };
   }
 
@@ -184,8 +187,13 @@ async function main() {
     return template.replace(/\s*\{first_name\},?/g, "").replace(/\s{2,}/g, " ").trim();
   }
 
-  async function enviarMensagemDireta(igsid, texto) {
+  // a conversa assumida na mao: a pausa humana e o momento em que o dono da
+  // conta pode ter escrito, entao o cancelamento e conferido depois dela
+  async function enviarMensagemDireta(igsid, texto, cancelar) {
     await delayHumano();
+    if (cancelar && cancelar()) {
+      return { ok: false, interrompido: true, data: { motivo: "conversa assumida manualmente" } };
+    }
     const resp = await fetch(
       `${GRAPH_BASE}/v25.0/${IG_USER_ID}/messages`,
       {
@@ -201,7 +209,88 @@ async function main() {
       }
     );
     const data = await resp.json().catch(() => ({}));
+    if (resp.ok) await registrarEnviada(data);
     return { ok: resp.ok, data };
+  }
+
+  // guarda o id de cada mensagem que a automacao manda; o que chegar como eco
+  // ou aparecer na conversa sem estar aqui foi o dono da conta digitando
+  async function registrarEnviada(data) {
+    try {
+      await sentMessagesStore.registrar(account.id, data?.recipient_id, data?.message_id);
+    } catch (err) {
+      console.error("Falha ao registrar id da mensagem enviada", err);
+    }
+  }
+
+  // igsid -> quando o dono da conta escreveu na mao pela ultima vez (nesta execucao)
+  const conversasAssumidas = new Map();
+
+  // O dono da conta escreveu na mao: a automacao sai da conversa. Apaga o que
+  // estava pendente pra essa pessoa e deixa registrado no historico.
+  async function assumirConversa(igsid, origem) {
+    conversasAssumidas.set(igsid, Date.now());
+    const gate = await followGatesStore.reivindicar(account.id, igsid);
+    if (!gate) return false;
+    console.log(`Conversa assumida na mao (${origem}): conteudo pendente cancelado`, igsid);
+    await historyStore.registrar({
+      accountId: account.id,
+      comment_id: gate.comment_id || `manual_${igsid}`,
+      media_id: null,
+      regra_id: gate.rule_id,
+      commenter_id: igsid,
+      commenter_username: null,
+      comment_text: null,
+      reply_text: null,
+      status: "interrompido_manual",
+      error: null,
+      comment_reply_status: null,
+      comment_reply_error: null,
+    });
+    return true;
+  }
+
+  // Eco: mensagem que saiu da conta. Se o id nao e de uma que a automacao
+  // mandou, e o dono da conta falando com a pessoa.
+  async function tratarEco(evento) {
+    const mensagem = evento?.message;
+    const destinatario = evento?.recipient?.id;
+    if (!mensagem?.mid || !destinatario || destinatario === IG_USER_ID) return;
+    if (mensagem.is_deleted || !(mensagem.text || mensagem.attachments)) return;
+    if (seenMessageIds.has(mensagem.mid)) return;
+    seenMessageIds.add(mensagem.mid);
+    // o eco pode chegar antes de a gente terminar de gravar o id do que enviou
+    await esperar(3000);
+    if (await sentMessagesStore.existe(mensagem.mid)) return;
+    await assumirConversa(destinatario, "eco");
+  }
+
+  // Segunda trava, sem depender do eco: olha a conversa na Meta e ve se, depois
+  // que a pessoa entrou na espera, saiu mensagem da conta que nao foi nossa.
+  async function donoFalouDesde(igsid, desde) {
+    try {
+      const campos = encodeURIComponent("messages.limit(30){id,from,created_time}");
+      const resp = await fetch(
+        `${GRAPH_BASE}/v25.0/${IG_USER_ID}/conversations?platform=instagram&user_id=${encodeURIComponent(igsid)}&fields=${campos}`,
+        { headers: { Authorization: `Bearer ${currentAccessToken}` } }
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        console.error("Falha ao ler a conversa pra checar intervencao manual", igsid, data);
+        return false;
+      }
+      const limite = new Date(desde).getTime();
+      for (const m of data?.data?.[0]?.messages?.data || []) {
+        if (m.from?.id !== IG_USER_ID) continue;
+        if (new Date(m.created_time).getTime() <= limite) continue;
+        if (await sentMessagesStore.existe(m.id)) continue;
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("Erro ao checar intervencao manual", igsid, err);
+      return false;
+    }
   }
 
   const TEXTO_ABERTURA_PADRAO =
@@ -212,9 +301,14 @@ async function main() {
   // para ali e diz qual foi, pra nao mandar o resto fora de ordem.
   async function entregarConteudo(igsid, texto) {
     const partes = dividirEmPartes(texto);
+    const inicio = Date.now();
+    // se o dono da conta escrever na mao no meio da entrega, o resto nao sai
+    const cancelar = () => (conversasAssumidas.get(igsid) || 0) >= inicio;
     for (let i = 0; i < partes.length; i++) {
-      const r = await enviarMensagemDireta(igsid, partes[i]);
-      if (!r.ok) return { ok: false, data: r.data, parte: i + 1, total: partes.length };
+      const r = await enviarMensagemDireta(igsid, partes[i], cancelar);
+      if (!r.ok) {
+        return { ok: false, interrompido: Boolean(r.interrompido), data: r.data, parte: i + 1, total: partes.length };
+      }
     }
     return { ok: true, total: partes.length };
   }
@@ -323,7 +417,8 @@ async function main() {
     const mensagem = evento?.message;
     const mensagemId = mensagem?.mid;
     const texto = mensagem?.text;
-    if (!senderId || senderId === IG_USER_ID) return; // ignora eco/mensagem da propria conta
+    if (!senderId) return;
+    if (senderId === IG_USER_ID) return tratarEco(evento); // mensagem que saiu da propria conta
     // so processa mensagem de texto de verdade -- o webhook manda tambem
     // "visto", reacao, edicao etc no mesmo campo "messaging", sem "message"
     // (ou sem texto), e cada um contava como se a pessoa tivesse mandado uma
@@ -343,6 +438,12 @@ async function main() {
     const regra = regras.find((r) => r.id === pendente.rule_id);
     if (!regra) {
       await followGatesStore.remover(account.id, senderId); // regra apagada, nada a entregar
+      return;
+    }
+
+    // se o dono da conta ja conversou com a pessoa na mao, a automacao nao entra
+    if (await donoFalouDesde(senderId, pendente.created_at)) {
+      await assumirConversa(senderId, "conversa");
       return;
     }
 
@@ -378,13 +479,15 @@ async function main() {
       commenter_username: null,
       comment_text: texto || null,
       reply_text: regra.reply_text,
-      status: resultado.ok ? "sent" : "failed",
+      status: resultado.ok ? "sent" : resultado.interrompido ? "interrompido_manual" : "failed",
       error: resultado.ok ? null : { parte: resultado.parte, de: resultado.total, ...resultado.data },
       comment_reply_status: null,
       comment_reply_error: null,
     });
 
-    if (resultado.ok) {
+    if (resultado.interrompido) {
+      console.log(`Entrega interrompida na parte ${resultado.parte}/${resultado.total}: dono da conta assumiu a conversa`, senderId);
+    } else if (resultado.ok) {
       console.log(`Conteudo liberado em ${resultado.total} mensagem(ns)`, senderId);
     } else {
       console.error(`Falha ao liberar conteudo na parte ${resultado.parte}/${resultado.total}`, senderId, resultado.data);

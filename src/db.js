@@ -66,6 +66,13 @@ async function init() {
 
     ALTER TABLE rules ADD COLUMN IF NOT EXISTS follow_request_text TEXT;
     ALTER TABLE rules ADD COLUMN IF NOT EXISTS dm_abertura TEXT;
+
+    CREATE TABLE IF NOT EXISTS sent_messages (
+      mid TEXT PRIMARY KEY,
+      account_id INTEGER NOT NULL REFERENCES ig_accounts(id),
+      igsid TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 }
 

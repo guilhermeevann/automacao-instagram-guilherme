@@ -391,8 +391,8 @@ async function carregarHistorico() {
               <td>${new Date(h.timestamp).toLocaleString("pt-BR")}</td>
               <td>${escapeHtml(h.commenter_username || h.commenter_id || "?")}</td>
               <td>${escapeHtml(h.comment_text || "")}</td>
-              <td class="${h.status === "sent" ? "status-ok" : h.status === "aguardando_seguir" || h.status === "aguardando_resposta" ? "status-pendente" : "status-erro"}">${
-                h.status === "sent" ? "Enviado" : h.status === "aguardando_seguir" ? "Aguardando seguir" : h.status === "aguardando_resposta" ? "Aguardando resposta" : "Falhou"
+              <td class="${h.status === "sent" ? "status-ok" : h.status === "aguardando_seguir" || h.status === "aguardando_resposta" || h.status === "interrompido_manual" ? "status-pendente" : "status-erro"}">${
+                h.status === "sent" ? "Enviado" : h.status === "aguardando_seguir" ? "Aguardando seguir" : h.status === "aguardando_resposta" ? "Aguardando resposta" : h.status === "interrompido_manual" ? "Você assumiu" : "Falhou"
               }</td>
               <td class="${h.comment_reply_status === "sent" ? "status-ok" : h.comment_reply_status === "failed" ? "status-erro" : ""}">${
                 h.comment_reply_status === "sent" ? "Enviada" : h.comment_reply_status === "failed" ? "Falhou" : "—"
