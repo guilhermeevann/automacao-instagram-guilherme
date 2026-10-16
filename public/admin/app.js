@@ -174,6 +174,7 @@ function renderRegraCard(regra) {
     : "";
   const emPartes = new TextEncoder().encode(regra.reply_text).length > 1000;
   const badgePartes = emPartes ? `<span class="badge-seguir badge-partes">✂️ em partes</span>` : "";
+  const badgeBotoes = regra.usar_botoes ? `<span class="badge-seguir badge-partes">🔘 botões</span>` : "";
   const badgeSeguir = regra.require_follow
     ? `<span class="badge-seguir">🔒 exige seguir</span>`
     : "";
@@ -182,7 +183,7 @@ function renderRegraCard(regra) {
     <div class="regra-card">
       ${thumb}
       <div class="regra-corpo">
-        <div class="regra-titulo">${titulo} ${badgeSeguir} ${badgePartes}</div>
+        <div class="regra-titulo">${titulo} ${badgeSeguir} ${badgePartes} ${badgeBotoes}</div>
         ${legenda ? `<div class="regra-legenda">${legenda}</div>` : ""}
         <div class="regra-keywords">${keywords}</div>
         <div class="regra-reply">${escapeHtml(regra.reply_text)}</div>
@@ -208,6 +209,7 @@ const campoPosts = document.getElementById("campo-posts");
 const gridPosts = document.getElementById("grid-posts");
 const campoFollowRequest = document.getElementById("campo-follow-request");
 const inputRequireFollow = document.getElementById("input-require-follow");
+const inputUsarBotoes = document.getElementById("input-usar-botoes");
 const inputReply = document.getElementById("input-reply");
 const campoDmAbertura = document.getElementById("campo-dm-abertura");
 const replyContador = document.getElementById("reply-contador");
@@ -289,6 +291,7 @@ function abrirModalEdicao(regra) {
   atualizarContador();
   document.getElementById("input-comment-reply").value = regra.comment_reply_text || "";
   inputRequireFollow.checked = Boolean(regra.require_follow);
+  inputUsarBotoes.checked = Boolean(regra.usar_botoes);
   document.getElementById("input-follow-request").value = regra.follow_request_text || "";
   campoFollowRequest.hidden = !regra.require_follow;
   overlay.hidden = false;
@@ -331,6 +334,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
   const dm_abertura = document.getElementById("input-dm-abertura").value.trim();
   const comment_reply_text = document.getElementById("input-comment-reply").value.trim();
   const require_follow = inputRequireFollow.checked;
+  const usar_botoes = inputUsarBotoes.checked;
   const follow_request_text = document.getElementById("input-follow-request").value.trim();
 
   if (keywords.length === 0 || !reply_text) {
@@ -341,7 +345,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
 
   try {
     if (editandoId) {
-      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura });
+      await api.send("PUT", `/api/rules/${editandoId}`, { keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura, usar_botoes });
     } else {
       const escopo = document.querySelector('input[name="escopo"]:checked').value;
       if (escopo === "post" && !postSelecionado) {
@@ -350,7 +354,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
         return;
       }
       const body = escopo === "all"
-        ? { media_id: "all", keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura }
+        ? { media_id: "all", keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura, usar_botoes }
         : {
             media_id: postSelecionado.id,
             media_thumbnail: postSelecionado.thumbnail,
@@ -362,6 +366,7 @@ document.getElementById("btn-salvar").addEventListener("click", async () => {
             require_follow,
             follow_request_text,
             dm_abertura,
+            usar_botoes,
           };
       await api.send("POST", "/api/rules", body);
     }
@@ -393,7 +398,7 @@ async function carregarHistorico() {
               <td>${escapeHtml(h.comment_text || "")}</td>
               <td class="${h.status === "sent" ? "status-ok" : h.status === "aguardando_seguir" || h.status === "aguardando_resposta" || h.status === "interrompido_manual" ? "status-pendente" : "status-erro"}">${
                 h.status === "sent" ? "Enviado" : h.status === "aguardando_seguir" ? "Aguardando seguir" : h.status === "aguardando_resposta" ? "Aguardando resposta" : h.status === "interrompido_manual" ? "Você assumiu" : "Falhou"
-              }</td>
+              }${h.error && h.error.botoes === "ok" ? " 🔘" : h.error && h.error.botoes === "recusados" ? " (botão recusado, foi só texto)" : ""}</td>
               <td class="${h.comment_reply_status === "sent" ? "status-ok" : h.comment_reply_status === "failed" ? "status-erro" : ""}">${
                 h.comment_reply_status === "sent" ? "Enviada" : h.comment_reply_status === "failed" ? "Falhou" : "—"
               }</td>

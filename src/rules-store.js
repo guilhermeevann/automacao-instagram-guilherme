@@ -37,16 +37,16 @@ function validarTamanhos({ dm_abertura, follow_request_text }) {
   }
 }
 
-async function criar({ accountId, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura }) {
+async function criar({ accountId, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura, usar_botoes }) {
   validarTamanhos({ dm_abertura, follow_request_text });
   if (!media_id || !Array.isArray(keywords) || keywords.length === 0 || !reply_text) {
     throw new Error("media_id, keywords[] (>=1) e reply_text sao obrigatorios");
   }
   const id = crypto.randomUUID();
   const { rows } = await pool.query(
-    `INSERT INTO rules (id, account_id, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-    [id, accountId, media_id, media_thumbnail || null, media_caption_snippet || null, media_permalink || null, keywords, reply_text, comment_reply_text || null, Boolean(require_follow), follow_request_text || null, dm_abertura || null]
+    `INSERT INTO rules (id, account_id, media_id, media_thumbnail, media_caption_snippet, media_permalink, keywords, reply_text, comment_reply_text, require_follow, follow_request_text, dm_abertura, usar_botoes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+    [id, accountId, media_id, media_thumbnail || null, media_caption_snippet || null, media_permalink || null, keywords, reply_text, comment_reply_text || null, Boolean(require_follow), follow_request_text || null, dm_abertura || null, Boolean(usar_botoes)]
   );
   return rows[0];
 }
@@ -61,10 +61,11 @@ async function atualizar(accountId, id, patch) {
        require_follow = $6,
        follow_request_text = $7,
        dm_abertura = $8,
+       usar_botoes = COALESCE($9, usar_botoes),
        updated_at = now()
      WHERE id = $1 AND account_id = $2
      RETURNING *`,
-    [id, accountId, patch.keywords || null, patch.reply_text || null, patch.comment_reply_text || null, Boolean(patch.require_follow), patch.follow_request_text || null, patch.dm_abertura || null]
+    [id, accountId, patch.keywords || null, patch.reply_text || null, patch.comment_reply_text || null, Boolean(patch.require_follow), patch.follow_request_text || null, patch.dm_abertura || null, patch.usar_botoes === undefined ? null : Boolean(patch.usar_botoes)]
   );
   return rows[0] || null;
 }

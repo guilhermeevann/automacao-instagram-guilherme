@@ -66,6 +66,7 @@ async function init() {
 
     ALTER TABLE rules ADD COLUMN IF NOT EXISTS follow_request_text TEXT;
     ALTER TABLE rules ADD COLUMN IF NOT EXISTS dm_abertura TEXT;
+    ALTER TABLE rules ADD COLUMN IF NOT EXISTS usar_botoes BOOLEAN NOT NULL DEFAULT false;
 
     CREATE TABLE IF NOT EXISTS sent_messages (
       mid TEXT PRIMARY KEY,

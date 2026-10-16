@@ -7,6 +7,14 @@ const rulesStore = require("./rules-store");
 const historyStore = require("./history-store");
 const followGatesStore = require("./follow-gates-store");
 const sentMessagesStore = require("./sent-messages-store");
+const {
+  BOTAO_QUERO,
+  BOTAO_SEGUI,
+  TEXTO_ABERTURA_BOTAO,
+  TEXTO_PEDIR_SEGUIR_BOTAO,
+  TEXTO_LEMBRETE_SEGUIR_BOTAO,
+  montarMensagem,
+} = require("./botoes");
 const { dividirEmPartes, cabeEmUmaMensagem } = require("./dm-parts");
 const { encontrarRegra } = require("./rules");
 const { buscarMediaRecente } = require("./media");
@@ -116,25 +124,41 @@ async function main() {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
-  async function enviarPrivateReply(commentId, replyText) {
-    await delayHumano();
-    const resp = await fetch(
-      `${GRAPH_BASE}/v25.0/${IG_USER_ID}/messages`,
-      {
+  // Envio unico de mensagem. Com botoes, tenta com eles; se a Meta recusar a
+  // requisicao (400), reenvia so o texto -- a pessoa nao pode ficar sem resposta
+  // so porque o botao nao foi aceito. So reenvia em 400: um erro de rede ou 5xx
+  // pode ter entregado a primeira e duplicaria a mensagem.
+  async function postarMensagem(destinatario, texto, botoes) {
+    const enviar = async (message) => {
+      const resp = await fetch(`${GRAPH_BASE}/v25.0/${IG_USER_ID}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${currentAccessToken}`,
         },
-        body: JSON.stringify({
-          recipient: { comment_id: commentId },
-          message: { text: replyText },
-        }),
-      }
-    );
-    const data = await resp.json().catch(() => ({}));
-    if (resp.ok) await registrarEnviada(data);
-    return { ok: resp.ok, data };
+        body: JSON.stringify({ recipient: destinatario, message }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      return { ok: resp.ok, status: resp.status, data };
+    };
+
+    const comBotoes = Boolean(botoes && botoes.length);
+    let r = await enviar(montarMensagem(texto, botoes));
+    if (!r.ok && comBotoes && r.status === 400) {
+      console.error("A Meta recusou a mensagem com botoes, reenviando so o texto", destinatario, r.data);
+      const recusa = r.data;
+      r = await enviar({ text: texto });
+      r = { ...r, botoes: "recusados", detalheBotoes: recusa };
+    } else if (comBotoes) {
+      r = { ...r, botoes: r.ok ? "ok" : "falhou" };
+    }
+    if (r.ok) await registrarEnviada(r.data);
+    return r;
+  }
+
+  async function enviarPrivateReply(commentId, replyText, botoes) {
+    await delayHumano();
+    return postarMensagem({ comment_id: commentId }, replyText, botoes);
   }
 
   async function enviarRespostaPublica(commentId, texto) {
@@ -189,28 +213,12 @@ async function main() {
 
   // a conversa assumida na mao: a pausa humana e o momento em que o dono da
   // conta pode ter escrito, entao o cancelamento e conferido depois dela
-  async function enviarMensagemDireta(igsid, texto, cancelar) {
+  async function enviarMensagemDireta(igsid, texto, cancelar, botoes) {
     await delayHumano();
     if (cancelar && cancelar()) {
       return { ok: false, interrompido: true, data: { motivo: "conversa assumida manualmente" } };
     }
-    const resp = await fetch(
-      `${GRAPH_BASE}/v25.0/${IG_USER_ID}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${currentAccessToken}`,
-        },
-        body: JSON.stringify({
-          recipient: { id: igsid },
-          message: { text: texto },
-        }),
-      }
-    );
-    const data = await resp.json().catch(() => ({}));
-    if (resp.ok) await registrarEnviada(data);
-    return { ok: resp.ok, data };
+    return postarMensagem({ id: igsid }, texto, botoes);
   }
 
   // guarda o id de cada mensagem que a automacao manda; o que chegar como eco
@@ -346,14 +354,25 @@ async function main() {
       precisaSeguir = Boolean(regra.require_follow) && !status.segue;
     }
 
+    // botao so onde a pessoa precisa responder; a entrega final sai sem botao
+    const usarBotoes = Boolean(regra.usar_botoes);
+    let botoes = null;
     if (precisaSeguir) {
-      textoParaEnviar = personalizarTexto(regra.follow_request_text || TEXTO_PEDIR_SEGUIR_PADRAO, nome);
+      textoParaEnviar = personalizarTexto(
+        regra.follow_request_text || (usarBotoes ? TEXTO_PEDIR_SEGUIR_BOTAO : TEXTO_PEDIR_SEGUIR_PADRAO),
+        nome
+      );
+      if (usarBotoes) botoes = [BOTAO_SEGUI];
     } else if (conteudoLongo) {
       aguardaResposta = true;
-      textoParaEnviar = personalizarTexto(regra.dm_abertura || TEXTO_ABERTURA_PADRAO, nome);
+      textoParaEnviar = personalizarTexto(
+        regra.dm_abertura || (usarBotoes ? TEXTO_ABERTURA_BOTAO : TEXTO_ABERTURA_PADRAO),
+        nome
+      );
+      if (usarBotoes) botoes = [BOTAO_QUERO];
     }
 
-    const resultado = await enviarPrivateReply(commentId, textoParaEnviar);
+    const resultado = await enviarPrivateReply(commentId, textoParaEnviar, botoes);
 
     if ((precisaSeguir || aguardaResposta) && resultado.ok) {
       await followGatesStore.upsert({
@@ -385,7 +404,11 @@ async function main() {
             ? "aguardando_resposta"
             : "sent"
         : "failed",
-      error: resultado.ok ? null : resultado.data,
+      error: resultado.ok
+        ? resultado.botoes
+          ? { botoes: resultado.botoes, ...(resultado.detalheBotoes ? { detalhe: resultado.detalheBotoes } : {}) }
+          : null
+        : resultado.data,
       comment_reply_status: resultadoPublico ? (resultadoPublico.ok ? "sent" : "failed") : null,
       comment_reply_error: resultadoPublico && !resultadoPublico.ok ? resultadoPublico.data : null,
     });
@@ -455,9 +478,13 @@ async function main() {
         await enviarMensagemDireta(
           senderId,
           personalizarTexto(
-            "{first_name}, ainda não te vejo seguindo -- confere se salvou certinho e me chama de novo assim que seguir.",
+            regra.usar_botoes
+              ? TEXTO_LEMBRETE_SEGUIR_BOTAO
+              : "{first_name}, ainda não te vejo seguindo -- confere se salvou certinho e me chama de novo assim que seguir.",
             nome
-          )
+          ),
+          null,
+          regra.usar_botoes ? [BOTAO_SEGUI] : null
         );
         return;
       }
