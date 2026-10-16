@@ -46,6 +46,14 @@ painel, o campo da DM mostra os bytes e em quantas partes vai sair.
 Duas respostas quase juntas da mesma pessoa não duplicam a entrega: o estado pendente é apagado
 e devolvido numa operação só (`follow-gates-store.reivindicar`).
 
+## Botoes de resposta rapida
+
+Campo `usar_botoes` por regra (painel: "Botoes de resposta rapida", desligado por padrao).
+Ligado, a abertura da DM longa leva o botao **Quero receber** e o pedido pra seguir (e o
+lembrete) leva **Ja segui**. O toque chega como mensagem de texto comum. Se a Meta recusar a
+mensagem com botao (400), o sistema reenvia uma vez so o texto e o historico avisa. A entrega
+final sai sem botao. Os botoes ficam em `src/botoes.js`; `npm test` cobre o formato.
+
 ## Quando o dono da conta assume a conversa
 
 Se voce escrever na mao para alguem que esta na espera (pediu a palavra-chave e ainda nao
